@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DropMeme · Placer la zone</title></head><body>
+  <section class="placement-frame" aria-label="Zone d’affichage">
+    <header><button id="drag" type="button" aria-label="Déplacer la zone">⠿ <span>DropMeme</span></button><div><button id="save" type="button" title="Enregistrer la position" aria-label="Enregistrer la position">✓</button><button id="cancel" type="button" title="Annuler" aria-label="Annuler">×</button></div></header>
+    <div class="placeholder"><span>Votre GIF apparaîtra ici</span><p>Déplacez l’onglet. Étirez le coin.</p><output id="dimensions"></output></div>
+    <button id="resize" type="button" aria-label="Redimensionner la zone" title="Redimensionner">◢</button>
+    <p id="placement-error" role="status"></p>
+  </section><script type="module" src="/src/placement.ts"></script>
+</body></html>

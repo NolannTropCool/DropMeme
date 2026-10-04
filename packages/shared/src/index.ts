@@ -4,11 +4,20 @@ export const snowflake = z.string().regex(/^\d{17,20}$/, 'ID Discord invalide');
 export const mediaKind = z.enum(['image', 'video', 'audio']);
 export type MediaKind = z.infer<typeof mediaKind>;
 
+const positionSchema = z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'custom']);
+const layoutSchema = z.object({
+  position: positionSchema.default('custom'),
+  x: z.number().min(0).max(1), y: z.number().min(0).max(1),
+  width: z.number().int().min(160).max(8192), height: z.number().int().min(120).max(4320),
+});
 export const settingsSchema = z.object({
   monitor: z.string().default('primary'),
-  position: z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']).default('bottom-right'),
-  width: z.number().int().min(160).max(1920).default(480),
-  height: z.number().int().min(120).max(1080).default(320),
+  position: positionSchema.default('bottom-right'),
+  customX: z.number().min(0).max(1).default(1),
+  customY: z.number().min(0).max(1).default(1),
+  layouts: z.record(z.string(), layoutSchema).default({}),
+  width: z.number().int().min(160).max(8192).default(480),
+  height: z.number().int().min(120).max(4320).default(320),
   durationSeconds: z.number().int().min(2).max(120).default(10),
   volume: z.number().int().min(0).max(100).default(50),
   sound: z.boolean().default(false),
@@ -27,6 +36,7 @@ export const mediaEventSchema = z.object({
   id: z.string().min(1).max(100),
   channelId: snowflake,
   kind: mediaKind,
+  loop: z.boolean().optional(),
   url: z.url(),
   name: z.string().max(256),
   author: z.string().max(100),

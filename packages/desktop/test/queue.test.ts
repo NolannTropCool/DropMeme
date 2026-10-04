@@ -6,6 +6,13 @@ function event(id: string, kind: MediaEvent['kind'] = 'image'): MediaEvent {
   return { type: 'media', id, channelId: '123456789012345678', kind, url: `https://example.com/v1/media/${id}`, name: id, author: 'Alice', createdAt: Date.now() };
 }
 describe('bounded media queue', () => {
+  test('Discord GIF animations encoded as MP4 follow the Images & GIF filter, not the video filter', () => {
+    const queue = new MediaQueue({ ...defaultSettings, videos: false }, vi.fn());
+    expect(queue.enqueue({ ...event('gif', 'video'), loop: true })).toBe(true);
+    queue.configure({ ...defaultSettings, images: false, videos: true });
+    expect(queue.enqueue({ ...event('gif-disabled', 'video'), loop: true })).toBe(false);
+    expect(queue.enqueue(event('video', 'video'))).toBe(true);
+  });
   test('plays FIFO, ignores duplicates and stale completion callbacks', () => {
     const display = vi.fn(); const queue = new MediaQueue(defaultSettings, display);
     expect(queue.enqueue(event('a'))).toBe(true);

@@ -42,6 +42,7 @@ code { color: #d4ded6; font-family: "Cascadia Code", Consolas, monospace; }
 #message { color: #d7bd8c; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; margin-bottom: 0; }
 #message:empty { display: none; }
 .fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 14px; }
+.placement-actions { margin-top: 20px; }
 .unit { color: #7f8b82; font-size: 10px; margin-left: 3px; }
 .range-field { margin-top: 20px; }
 .range-field label { display: flex; justify-content: space-between; }

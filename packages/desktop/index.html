@@ -29,12 +29,13 @@
         <div class="section-heading"><h2 id="display-heading">Affichage</h2><span class="eyebrow">02 / PRÉFÉRENCES</span></div>
         <div class="fields-grid">
           <div><label for="monitor">Écran</label><select id="monitor"><option value="primary">Écran principal</option></select></div>
-          <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option></select></div>
-          <div><label for="width">Largeur <span class="unit">px</span></label><input id="width" type="number" min="160" max="1920" step="10" /></div>
-          <div><label for="height">Hauteur <span class="unit">px</span></label><input id="height" type="number" min="120" max="1080" step="10" /></div>
+          <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
+          <div><label for="width">Largeur <span class="unit">px logiques</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
+          <div><label for="height">Hauteur <span class="unit">px logiques</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
           <div><label for="durationSeconds">Durée maximale <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
           <div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div>
         </div>
+        <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le petit onglet, redimensionnez le cadre, puis validez avec ✓. Une disposition par écran.</p></div>
         <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
         <div class="divider"></div>
         <div class="toggle-row"><label for="sound">Lire le son <span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>

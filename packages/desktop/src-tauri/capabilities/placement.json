@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "placement",
+  "description": "Move and resize the placement frame; no credential, file or store access.",
+  "windows": ["placement"],
+  "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-start-resize-dragging"]
+}

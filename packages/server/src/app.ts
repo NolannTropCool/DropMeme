@@ -214,6 +214,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
       if (!media) return false;
       for (const [socket, device] of peers) if (device.channelId === channelId) send(socket, {
         type: 'media', id: media.id, channelId, kind: media.kind,
+        ...(media.loop ? { loop: true } : {}),
         url: catalog.url(config.publicUrl, media.id, device.id), name: media.name, author: media.author, createdAt: media.createdAt,
       });
       return true;

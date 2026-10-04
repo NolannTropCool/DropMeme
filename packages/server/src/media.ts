@@ -15,17 +15,18 @@ const extensions: Record<string, string> = {
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
 };
 
-export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string }
+export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean }
 export interface StoredMedia extends IncomingMedia {
   id: string; channelId: string; kind: MediaKind; author: string; createdAt: number;
 }
 
-/** Do not fetch arbitrary message URLs: only Discord's HTTPS media CDN. */
+/** Only exact HTTPS media CDN hosts. Never fetch a message's arbitrary URL or an HTML player. */
 export function isDiscordMediaUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.port &&
-      ['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname) &&
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
+    if (url.hostname === 'media.tenor.com') return /^\/[A-Za-z0-9_-]+\/[^/]+\.(gif|mp4|webm)$/i.test(url.pathname);
+    return ['cdn.discordapp.com', 'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net'].includes(url.hostname) &&
       (url.pathname.startsWith('/attachments/') || url.pathname.startsWith('/external/'));
   } catch { return false; }
 }

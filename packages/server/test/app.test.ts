@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 import type { MediaEvent, PairingResponse, ServerEvent } from '@dropmeme/shared';
 import { createApplication, type Application } from '../src/app.js';
 import type { Config } from '../src/config.js';
+import { extractDiscordMedia } from '../src/discord-media.js';
 
 const channelA = '123456789012345678';
 const channelB = '223456789012345678';
@@ -52,6 +53,24 @@ async function nextMedia(token: string): Promise<MediaEvent> {
 }
 
 describe('HTTP and real WebSocket integration', () => {
+  test('Tenor GIF picker media is proxied as looping video, not as a thumbnail or an external player', async () => {
+    const device = await pair(); const { socket } = await open(device.token);
+    const arrival = new Promise<MediaEvent>(resolve => socket.once('message', data => resolve(JSON.parse(data.toString()) as MediaEvent)));
+    const url = 'https://media.tenor.com/fixtureAAAAC/animation.mp4';
+    const incoming = extractDiscordMedia({ id: 'gif-message', attachments: new Map(), embeds: [{ type: 'gifv', video: { url } }] })[0]!;
+    expect(application.publish(channelA, 'Discord', incoming)).toBe(true);
+    expect(application.publish(channelA, 'Discord', incoming)).toBe(false);
+    const event = await arrival;
+    expect(event.kind).toBe('video'); expect(event.loop).toBe(true);
+    expect(event.url).toMatch(new RegExp(`^${config.publicUrl}/v1/media/`));
+    fetchMedia.mockImplementationOnce(async () => new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'video/mp4' } }));
+    const resource = new URL(event.url);
+    const response = await application.app.inject(resource.pathname + resource.search);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('video/mp4');
+    expect(fetchMedia.mock.calls[0]?.[0]).toBe(url);
+    expect(fetchMedia.mock.calls[0]?.[1]?.redirect).toBe('error');
+  });
   test('pairing requires an allowed channel and secret or a valid one-use code', async () => {
     expect((await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { channelId: channelA } })).statusCode).toBe(400);
     expect((await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { channelId: channelA, joinKey: 'wrong-key-at-least-24-chars' } })).statusCode).toBe(401);

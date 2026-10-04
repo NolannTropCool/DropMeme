@@ -33,7 +33,7 @@ function play(payload: DisplayPayload): void {
   const settings = settingsResult.data;
   const url = new URL(media.url);
   // Preview is a bundled asset. All other media are authenticated server resources.
-  if (!(payload.preview && url.origin === location.origin && url.pathname === '/preview.svg') && !url.pathname.startsWith('/v1/media/')) return;
+  if (!(payload.preview && url.origin === location.origin && url.pathname === '/preview.gif') && !url.pathname.startsWith('/v1/media/')) return;
   if (!['http:', 'https:', 'tauri:'].includes(url.protocol)) return;
   stop(); id = media.id;
   const current = generation;
@@ -52,6 +52,7 @@ function play(payload: DisplayPayload): void {
     const element = document.createElement(media.kind === 'video' ? 'video' : 'audio');
     active = element; element.muted = !settings.sound; element.volume = settings.volume / 100;
     element.autoplay = true; element.preload = 'auto';
+    element.loop = media.kind === 'video' && media.loop === true;
     if (element instanceof HTMLVideoElement) element.playsInline = true;
     element.onended = () => { if (current === generation) done(); };
     element.onerror = () => { if (current === generation) done('Format non pris en charge par cet appareil.'); };
@@ -74,6 +75,7 @@ function play(payload: DisplayPayload): void {
 if (isTauri()) {
   await listen<DisplayPayload>('overlay-play', event => play(event.payload));
   await listen('overlay-stop', stop);
+  await listen('overlay-probe', () => { void emitTo('main', 'overlay-ready'); });
   await emitTo('main', 'overlay-ready');
 } else {
   window.addEventListener('message', event => {

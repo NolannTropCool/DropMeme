@@ -1,10 +1,11 @@
-import { isTauri, invoke } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
-import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, primaryMonitor } from '@tauri-apps/api/window';
 import type { MediaEvent, Settings } from '@dropmeme/shared';
 import { overlayGeometry } from './geometry.js';
+import { openOverlay } from './native-overlay.js';
+import { applyWindowGeometry, monitorKey, monitorScreen, selectedMonitor } from './monitors.js';
 
 export interface DisplayPayload { media: MediaEvent; settings: Settings; preview: boolean }
 export class Display {
@@ -27,7 +28,7 @@ export class Display {
 
   async monitors(): Promise<{ value: string; label: string }[]> {
     if (!isTauri()) return [];
-    return (await availableMonitors()).map((monitor, index) => ({ value: String(index), label: monitor.name ?? `Écran ${index + 1}` }));
+    return (await availableMonitors()).map((monitor, index) => ({ value: monitorKey(monitor, index), label: `${monitor.name ?? `Écran ${index + 1}`} · ${monitor.size.width} × ${monitor.size.height}` }));
   }
 
   private async ensureWindow(): Promise<void> {
@@ -40,20 +41,7 @@ export class Display {
         frame.onload = () => resolve(); this.iframe = frame; document.body.append(frame);
       });
     } else {
-      this.ready = (async () => {
-        let loaded!: () => void;
-        const loading = new Promise<void>(resolve => { loaded = resolve; });
-        const unlisten = await listen('overlay-ready', loaded);
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await invoke('create_overlay');
-          this.window = (await WebviewWindow.getByLabel('overlay')) ?? undefined;
-          if (!this.window) throw new Error('Superposition introuvable.');
-          await Promise.race([loading, new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(() => reject(new Error('La superposition ne répond pas.')), 10_000);
-          })]);
-        } finally { clearTimeout(timeout); unlisten(); }
-      })().catch(error => { this.ready = undefined; throw error; });
+      this.ready = openOverlay().then(window => { this.window = window; }).catch(error => { this.ready = undefined; throw error; });
     }
     return this.ready;
   }
@@ -65,12 +53,11 @@ export class Display {
     const payload: DisplayPayload = { media, settings, preview };
     if (isTauri() && this.window) {
       const monitors = await availableMonitors();
-      const selected = settings.monitor === 'primary' ? await primaryMonitor() : monitors[Number(settings.monitor)];
+      const selected = settings.monitor === 'primary' ? await primaryMonitor() : selectedMonitor(monitors, settings.monitor);
       const monitor = selected ?? await primaryMonitor() ?? monitors[0];
       if (!monitor) throw new Error('Aucun écran disponible.');
-      const box = overlayGeometry({ x: monitor.position.x, y: monitor.position.y, width: monitor.size.width, height: monitor.size.height, scale: monitor.scaleFactor }, settings);
-      await this.window.setSize(new PhysicalSize(box.width, box.height));
-      await this.window.setPosition(new PhysicalPosition(box.x, box.y));
+      const box = overlayGeometry(monitorScreen(monitor), settings);
+      await applyWindowGeometry(this.window, box);
       await this.window.setIgnoreCursorEvents(true);
       if (serial !== this.serial) return;
       await emitTo('overlay', 'overlay-play', payload);

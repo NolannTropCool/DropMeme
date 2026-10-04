@@ -16,8 +16,42 @@ fn require_main(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
+// WebView2 deadlocks when a webview is built from a synchronous IPC command.
 #[tauri::command]
-fn create_overlay(window: WebviewWindow) -> Result<(), String> {
+async fn create_placement(window: WebviewWindow) -> Result<(), String> {
+    require_main(&window)?;
+    if window
+        .app_handle()
+        .get_webview_window("placement")
+        .is_some()
+    {
+        return Ok(());
+    }
+    let builder = WebviewWindowBuilder::new(
+        window.app_handle(),
+        "placement",
+        WebviewUrl::App("placement.html".into()),
+    )
+    .title("DropMeme · Placer la zone")
+    .inner_size(480.0, 320.0)
+    .min_inner_size(160.0, 120.0)
+    .max_inner_size(8192.0, 4320.0)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(true)
+    .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.additional_browser_args("--autoplay-policy=no-user-gesture-required");
+    builder
+        .build()
+        .map(|_| ())
+        .map_err(|_| "Création du cadre de placement impossible.".into())
+}
+
+#[tauri::command]
+async fn create_overlay(window: WebviewWindow) -> Result<(), String> {
     require_main(&window)?;
     if window.app_handle().get_webview_window("overlay").is_some() {
         return Ok(());
@@ -139,7 +173,8 @@ pub fn run() {
             load_token,
             save_token,
             clear_token,
-            create_overlay
+            create_overlay,
+            create_placement
         ])
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Ouvrir DropMeme", true, None::<&str>)?;

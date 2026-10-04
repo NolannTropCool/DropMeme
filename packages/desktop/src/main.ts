@@ -5,6 +5,8 @@ import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseS
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
 import { Connection } from './connection.js';
+import { placeOverlay } from './placement-controller.js';
+import { settingsForMonitor } from './geometry.js';
 import { readPreferences, writePreferences, readToken, saveToken, clearToken, type Preferences } from './preferences.js';
 import './style.css';
 
@@ -16,6 +18,7 @@ let connection: Connection | undefined;
 let mode: 'code' | 'channel' = 'code';
 let paused = false;
 let previewing = false;
+let placing = false;
 let connected = false;
 const display = new Display();
 const queue = new MediaQueue(preferences.settings, media => {
@@ -51,7 +54,7 @@ function startConnection(token: string): void {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
-    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing) queue.enqueue(event);
+    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
     else if (event.type === 'error') message(event.message);
   }, state => {
     connected = false;
@@ -124,9 +127,34 @@ $('hide').onclick = () => { if (isTauri()) void getCurrentWindow().hide(); else 
 $('preview').onclick = async () => {
   const id = queue.currentId(); if (id) { message('Passez le média en cours avant de tester l’affichage.'); return; }
   previewing = true;
-  const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}`, channelId: '123456789012345678', kind: 'image', url: new URL('/preview.svg', location.href).href, name: 'Aperçu DropMeme', author: 'DropMeme', createdAt: Date.now() };
-  try { await display.show(media, preferences.settings, true); }
+  const button = $<HTMLButtonElement>('preview'); button.disabled = true;
+  message('Ouverture de la superposition…');
+  const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}`, channelId: '123456789012345678', kind: 'image', url: new URL('/preview.gif', location.href).href, name: 'Aperçu DropMeme', author: 'DropMeme', createdAt: Date.now() };
+  try { await display.show(media, preferences.settings, true); message(''); }
   catch (error) { previewing = false; message(error instanceof Error ? error.message : 'Aperçu impossible.'); }
+  finally { button.disabled = placing; }
+};
+
+$('place').onclick = async () => {
+  if (placing) return;
+  placing = true; previewing = false; queue.setPaused(true);
+  const controls = [...document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('.settings-panel input, .settings-panel select, .settings-panel button, #pause, #disconnect, #skip, #clear')];
+  for (const control of controls) control.disabled = true;
+  message('Déplacez le cadre sur votre écran et validez avec ✓. Les nouveaux médias sont ignorés pendant le placement.');
+  try {
+    await display.hide();
+    const result = await placeOverlay(preferences.settings);
+    if (result) {
+      preferences.settings = result; queue.configure(result); await save();
+      $('saved').textContent = 'Disposition enregistrée pour cet écran.';
+    }
+    message('');
+  } catch (error) { message(error instanceof Error ? error.message : 'Placement impossible.'); }
+  finally {
+    placing = false; queue.setPaused(paused);
+    for (const control of controls) control.disabled = false;
+    renderSettings();
+  }
 };
 
 const numbers = ['width', 'height', 'durationSeconds', 'volume', 'opacity', 'maxQueue'] as const;
@@ -143,11 +171,13 @@ function renderSettings(): void {
 
 for (const key of [...numbers, ...booleans, 'position', 'monitor']) {
   $(key).addEventListener('change', () => {
-    const next = { ...preferences.settings };
+    let next = { ...preferences.settings };
     for (const name of numbers) next[name] = Number(input(name).value);
     for (const name of booleans) next[name] = input(name).checked;
     next.position = $<HTMLSelectElement>('position').value as typeof next.position;
     next.monitor = $<HTMLSelectElement>('monitor').value;
+    if (key === 'monitor') next = settingsForMonitor(next, next.monitor);
+    next.layouts = { ...next.layouts, [next.monitor]: { position: next.position, x: next.customX, y: next.customY, width: next.width, height: next.height } };
     const result = settingsSchema.safeParse(next);
     if (!result.success) { message('Réglage hors limites.'); renderSettings(); return; }
     preferences.settings = result.data; queue.configure(result.data); renderSettings();
@@ -178,7 +208,10 @@ async function initialize(): Promise<void> {
       if (error) message(error);
     });
   });
-  for (const monitor of await display.monitors()) {
+  const monitors = await display.monitors();
+  // 0.1.0 saved enumeration indices. Convert once to the stable display name.
+  if (/^\d+$/.test(preferences.settings.monitor)) preferences.settings.monitor = monitors[Number(preferences.settings.monitor)]?.value ?? 'primary';
+  for (const monitor of monitors) {
     const option = document.createElement('option'); option.value = monitor.value; option.textContent = monitor.label; $('monitor').append(option);
   }
   if (![...$<HTMLSelectElement>('monitor').options].some(option => option.value === preferences.settings.monitor)) preferences.settings.monitor = 'primary';

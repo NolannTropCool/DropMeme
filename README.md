@@ -8,12 +8,12 @@ Le bot reçoit les nouveaux messages via le Gateway Discord. Il diffuse les méd
 
 - Abonnement à un salon avec un code privé généré par `/dropmeme`, ou ID du salon + clé d’invitation administrateur.
 - Images, GIF, vidéos MP4/WebM et audio MP3/OGG/WAV/M4A, selon les codecs disponibles dans WebView2. Les images de liens passant par le proxy Discord sont aussi acceptées.
-- Écran, position, dimensions, opacité, durée maximale de 2 à 120 secondes, volume et son. Le son est désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
+- Écran, placement libre par glisser-déposer, dimensions, opacité, durée maximale de 2 à 120 secondes, volume et son. Le son est désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
 - File FIFO limitée, déduplication, filtres par format, pause, passage au média suivant et aperçu. La pause ignore les nouveaux médias ; elle ne les rejoue pas ensuite. Les médias en attente depuis plus de cinq minutes sont abandonnés.
 - Zone de notification, ouverture avec Windows, reconnexion automatique. Les réglages sont enregistrés localement et le jeton dans le gestionnaire d’identifiants Windows.
 - SQLite local : aucun Redis, PostgreSQL ou service de compte utilisateur à exploiter.
 
-Un appareil est abonné à **un salon à la fois**. Pour changer de salon, désabonnez-le puis connectez-le avec une nouvelle invitation. Seuls les nouveaux messages sont transmis, sans historique ni téléchargement lorsque personne ne consulte un média. Les lecteurs de liens YouTube/Tenor/Giphy et les pages externes ne sont pas exécutés : envoyez les fichiers directement en pièce jointe pour les GIF/vidéos.
+Un appareil est abonné à **un salon à la fois**. Pour changer de salon, désabonnez-le puis connectez-le avec une nouvelle invitation. Seuls les nouveaux messages sont transmis, sans historique ni téléchargement lorsque personne ne consulte un média. Les GIF en pièce jointe et ceux du sélecteur Discord/Tenor sont pris en charge, y compris leurs embeds ajoutés après l’envoi. Les animations Tenor encodées en MP4 sont bouclées et suivent le filtre **Images & GIF**, pas le filtre Vidéos. Les pages externes et les lecteurs YouTube/Giphy ne sont jamais exécutés.
 
 ## Préparer Discord
 
@@ -69,6 +69,14 @@ Le workflow **Checks** construit un installeur NSIS `.exe` à chaque push sur `m
 Un tag `v0.1.0`, ou autre version cohérente avec les fichiers du projet, déclenche **Windows release** : build, tests, somme SHA-256 et création d’une **GitHub Release en brouillon** contenant l’installeur. `workflow_dispatch` génère uniquement l’artefact. Pour changer de version, mettez à jour les `package.json`, `Cargo.toml`, `tauri.conf.json` et les lockfiles avant de poser le tag. Le projet ne contient pas de certificat de signature Windows : les installeurs générés seront non signés, et SmartScreen peut demander une confirmation. Aucune mise à jour automatique n’est activée.
 
 Dans l’application : saisissez l’URL HTTPS du serveur, puis votre code Discord ou l’ID du salon et la clé d’invitation. Choisissez vos réglages et utilisez « Tester l’affichage ». Fermer la fenêtre la réduit dans la zone de notification ; utilisez le menu **Quitter** pour arrêter l’application. Le mode plein écran exclusif de certains jeux peut masquer la superposition ; utilisez le plein écran sans bordure.
+
+### Placer les médias sur votre écran
+
+Choisissez un écran (sa résolution est affichée), puis **Placer sur l’écran**. Faites glisser le petit onglet DropMeme sur l’écran voulu, étirez le coin inférieur droit pour régler la taille et cliquez sur **✓** pour enregistrer ; **×**, Échap ou Alt+F4 annulent. Vous pouvez déplacer le cadre vers un autre moniteur : cet écran est alors sélectionné automatiquement. La zone entière du cadre est la zone d’affichage, l’image conserve ses proportions à l’intérieur.
+
+Chaque écran conserve sa propre disposition : un 49″ en 5120×1440 peut avoir une zone différente d’un 27″ en 2560×1440. Les coordonnées sont relatives au moniteur et les dimensions en pixels logiques, avec prise en compte du DPI Windows ; la zone est limitée à la surface de l’écran si sa résolution change. Les positions prédéfinies restent disponibles. Pendant le placement, les nouveaux médias sont ignorés. En lecture normale, le cadre et l’onglet disparaissent : la superposition laisse à nouveau passer les clics sans prendre le focus.
+
+L’aperçu utilise un vrai GIF animé embarqué, sans dépendre de Discord ou du serveur. Si même cet aperçu échoue, vérifiez le message affiché dans l’application, redémarrez DropMeme et vérifiez WebView2. Pour la correction **0.1.1**, quittez l’ancienne application depuis la zone de notification, installez le nouvel `.exe` du workflow Checks et redéployez aussi le serveur pour recevoir les GIF du sélecteur Discord. Les préférences et l’abonnement existants sont conservés.
 
 ## Développement
 

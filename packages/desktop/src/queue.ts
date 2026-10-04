@@ -16,7 +16,7 @@ export class MediaQueue {
   }
 
   private accepts(media: MediaEvent): boolean {
-    return media.kind === 'image' ? this.settings.images : media.kind === 'video' ? this.settings.videos : this.settings.audio && this.settings.sound;
+    return media.kind === 'image' || (media.kind === 'video' && media.loop === true) ? this.settings.images : media.kind === 'video' ? this.settings.videos : this.settings.audio && this.settings.sound;
   }
 
   enqueue(media: MediaEvent): boolean {

@@ -12,6 +12,10 @@ describe('media safety', () => {
     'file:///etc/passwd',
     'https://cdn.discordapp.com:8443/attachments/a.png',
     'https://cdn.discordapp.com/not-media/a.png',
+    'https://media.tenor.com.evil.example/id/test.gif',
+    'https://media.tenor.com/id/player.html',
+    'https://tenor.com/view/cat-123',
+    'https://images-ext-3.discordapp.net/external/test.gif',
   ])('rejects untrusted URL %s', url => { expect(isDiscordMediaUrl(url)).toBe(false); });
   test('only known types and bounded files are accepted', () => {
     expect(classifyMedia({ url: valid, name: 'image.png', contentType: 'image/png', size: 10 }, 100)).toBe('image');

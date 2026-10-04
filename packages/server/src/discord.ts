@@ -1,4 +1,5 @@
-import { Client, Events, GatewayIntentBits, MessageFlags, Options, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, type Message } from 'discord.js';
+import { Client, Events, GatewayIntentBits, MessageFlags, Options, Partials, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, type Message, type PartialMessage } from 'discord.js';
+import { extractDiscordMedia } from './discord-media.js';
 import type { Config } from './config.js';
 import type { Application, DiscordBridge } from './app.js';
 
@@ -42,6 +43,7 @@ export class DiscordBot implements DiscordBridge {
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     // DropMeme does not need Discord message history or a growing message cache.
     makeCache: Options.cacheWithLimits({ MessageManager: 0, PresenceManager: 0 }),
+    partials: [Partials.Message],
   });
   private application: Application | undefined;
 
@@ -64,6 +66,8 @@ export class DiscordBot implements DiscordBridge {
     this.client.on(Events.ShardResume, () => application.publishStatus());
     this.client.on(Events.ClientReady, () => application.publishStatus());
     this.client.on(Events.MessageCreate, message => this.forward(message));
+    // With no history cache, delayed embeds arrive as PartialMessage objects. Do not fetch history.
+    this.client.on(Events.MessageUpdate, (_before, message) => this.forward(message));
     this.client.on(Events.InteractionCreate, async interaction => {
       if (!interaction.isChatInputCommand() || interaction.commandName !== 'dropmeme') return;
       try {
@@ -89,26 +93,12 @@ export class DiscordBot implements DiscordBridge {
     }
   }
 
-  private forward(message: Message): void {
+  private forward(message: Message | PartialMessage): void {
     if (!this.application || message.guildId !== this.config.guildId || !this.config.allowedChannelIds.has(message.channelId)) return;
     // The sender's text is never sent to clients, only the media and display name.
-    const author = message.member?.displayName ?? message.author.displayName;
-    let count = 0;
-    for (const attachment of message.attachments.values()) {
-      if (count >= 10) break;
-      if (this.application.publish(message.channelId, author, {
-        url: attachment.url, name: attachment.name, contentType: attachment.contentType, size: attachment.size,
-        sourceId: `${message.id}:${attachment.id}`,
-      })) count++;
-    }
-    for (const [index, embed] of message.embeds.entries()) {
-      if (count >= 10) break;
-      // Discord-hosted image proxies cover image links. YouTube/Tenor players are not executed.
-      const image = embed.image;
-      if (image?.proxyURL && this.application.publish(message.channelId, author, {
-        url: image.proxyURL, name: 'image.jpg', contentType: null, size: 0, sourceId: `${message.id}:embed:${index}`,
-      })) count++;
-    }
+    if (Date.now() - message.createdTimestamp > 5 * 60_000) return;
+    const author = message.member?.displayName ?? message.author?.displayName ?? 'Discord';
+    for (const media of extractDiscordMedia(message)) this.application.publish(message.channelId, author, media);
   }
 
   async stop(): Promise<void> { await this.client.destroy(); }
