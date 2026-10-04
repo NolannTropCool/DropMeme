@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import { EmbedType } from 'discord.js';
+import { makeEmbed } from './discord-fixtures.js';
 import type { MediaEvent, PairingResponse, ServerEvent } from '@dropmeme/shared';
 import { createApplication, type Application } from '../src/app.js';
 import type { Config } from '../src/config.js';
@@ -57,7 +59,7 @@ describe('HTTP and real WebSocket integration', () => {
     const device = await pair(); const { socket } = await open(device.token);
     const arrival = new Promise<MediaEvent>(resolve => socket.once('message', data => resolve(JSON.parse(data.toString()) as MediaEvent)));
     const url = 'https://media.tenor.com/fixtureAAAAC/animation.mp4';
-    const incoming = extractDiscordMedia({ id: 'gif-message', attachments: new Map(), embeds: [{ type: 'gifv', video: { url } }] })[0]!;
+    const incoming = extractDiscordMedia({ id: 'gif-message', attachments: new Map(), embeds: [makeEmbed({ type: EmbedType.GIFV, video: { url } })] })[0]!;
     expect(application.publish(channelA, 'Discord', incoming)).toBe(true);
     expect(application.publish(channelA, 'Discord', incoming)).toBe(false);
     const event = await arrival;

@@ -1,6 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
-import { Routes, type REST } from 'discord.js';
-import { registerCommand } from '../src/discord.js';
+import { EmbedType, Events, Partials, REST, Routes } from 'discord.js';
+import { createDiscordClient, DiscordBot, registerCommand } from '../src/discord.js';
+import { createApplication } from '../src/app.js';
+import { makeMessage } from './discord-fixtures.js';
 import type { Config } from '../src/config.js';
 
 const appId = '123456789012345678';
@@ -58,4 +60,38 @@ describe('Discord registration diagnostics', () => {
     await expect(registerCommand(config, rest)).rejects.toThrow(/token du bot invalide/);
     expect(rest.post).not.toHaveBeenCalled();
   });
+});
+
+test('real discord.js partial messageUpdate forwards a late GIF without fetching history', async () => {
+  const client = createDiscordClient();
+  expect(client.options.partials).toContain(Partials.Message);
+  vi.spyOn(client, 'login').mockResolvedValue('fixture-login');
+  vi.spyOn(client, 'isReady').mockReturnValue(true);
+  vi.spyOn(REST.prototype, 'get').mockResolvedValueOnce({ id: appId }).mockResolvedValueOnce({ id: guildId });
+  vi.spyOn(REST.prototype, 'post').mockResolvedValue({});
+  const bot = new DiscordBot(config, client);
+  vi.spyOn(bot, 'channelName').mockResolvedValue('memes');
+  const application = await createApplication(config, bot, { logger: false });
+  const publish = vi.spyOn(application, 'publish');
+  const channelId = [...config.allowedChannelIds][0]!;
+  const url = 'https://media.tenor.com/fixtureAAAAC/cat.mp4';
+  try {
+    await bot.start(application);
+    const original = makeMessage(client, guildId, channelId);
+    client.emit(Events.MessageCreate, original);
+    expect(publish).not.toHaveBeenCalled();
+    const updated = makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }]);
+    expect(updated.partial).toBe(true); expect(updated.author).toBeNull();
+    client.emit(Events.MessageUpdate, original, updated);
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledWith(channelId, 'Discord', expect.objectContaining({ url, contentType: 'video/mp4', loop: true }));
+    expect(publish.mock.results[0]?.value).toBe(true);
+    // Repeated updates are rejected by the media catalog, not replayed to viewers.
+    client.emit(Events.MessageUpdate, original, updated);
+    expect(publish.mock.results[1]?.value).toBe(false);
+    client.emit(Events.MessageUpdate, original, makeMessage(client, guildId, appId, [{ type: EmbedType.GIFV, video: { url } }]));
+    client.emit(Events.MessageUpdate, original, makeMessage(client, appId, channelId, [{ type: EmbedType.GIFV, video: { url } }]));
+    client.emit(Events.MessageUpdate, original, makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }], 6 * 60_000));
+    expect(publish).toHaveBeenCalledTimes(2);
+  } finally { await bot.stop(); await application.app.close(); }
 });

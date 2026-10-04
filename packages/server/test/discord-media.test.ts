@@ -1,4 +1,6 @@
 import { expect, test } from 'vitest';
+import { EmbedType } from 'discord.js';
+import { makeEmbed } from './discord-fixtures.js';
 import { randomBytes } from 'node:crypto';
 import { extractDiscordMedia, type MediaMessage } from '../src/discord-media.js';
 import { MediaCatalog } from '../src/media.js';
@@ -11,25 +13,43 @@ test('extracts GIF attachments without flattening animation', () => {
 test('GIF picker unfurls arrive later, use actual animated media and deduplicate repeated updates', () => {
   const catalog = new MediaCatalog(randomBytes(32), 1024);
   expect(extractDiscordMedia(base)).toEqual([]);
-  const updated = { ...base, embeds: [{ type: 'gifv', video: { url: 'https://media.tenor.com/abcAAAAC/cat.mp4' }, thumbnail: { proxyURL: 'https://images-ext-1.discordapp.net/external/token/cat.jpg' } }] };
+  const url = 'https://media.tenor.com/abcAAAAC/cat.mp4';
+  const updated = { ...base, embeds: [makeEmbed({ type: EmbedType.GIFV, video: { url }, thumbnail: { url: 'https://example.com/cat.jpg', proxy_url: 'https://images-ext-1.discordapp.net/external/token/cat.jpg' } })] };
   const media = extractDiscordMedia(updated)[0]!;
-  expect(media).toMatchObject({ url: updated.embeds[0]!.video.url, name: 'animation.mp4', contentType: 'video/mp4', loop: true });
+  expect(media).toMatchObject({ url, name: 'animation.mp4', contentType: 'video/mp4', loop: true });
   expect(catalog.add('channel', 'Discord', media)?.kind).toBe('video');
   expect(catalog.add('channel', 'Discord', extractDiscordMedia(updated)[0]!)).toBeUndefined();
 });
 test('accepts Discord external image proxies but never forwards external HTML or YouTube players', () => {
   const media = extractDiscordMedia({ ...base, embeds: [
-    { type: 'image', image: { proxyURL: 'https://images-ext-2.discordapp.net/external/token/test.gif' } },
-    { type: 'gifv', video: { url: 'https://tenor.com/view/cat-123' } },
-    { type: 'video', video: { url: 'https://youtube.com/watch?v=test' } },
-    { image: { url: 'https://127.0.0.1/private.png' } },
+    makeEmbed({ type: EmbedType.Image, image: { url: 'https://example.com/test.gif', proxy_url: 'https://images-ext-2.discordapp.net/external/token/test.gif' } }),
+    makeEmbed({ type: EmbedType.GIFV, video: { url: 'https://tenor.com/view/cat-123' } }),
+    makeEmbed({ type: EmbedType.Video, video: { url: 'https://youtube.com/watch?v=test' } }),
+    makeEmbed({ image: { url: 'https://127.0.0.1/private.png' } }),
   ] });
   expect(media).toHaveLength(1);
   expect(media[0]?.url).toContain('images-ext-2.discordapp.net');
 });
 test('uses an animated GIF thumbnail only when no video is provided, never a static poster', () => {
   expect(extractDiscordMedia({ ...base, embeds: [
-    { type: 'gifv', thumbnail: { url: 'https://media.tenor.com/id/animation.gif' } },
-    { type: 'gifv', thumbnail: { proxyURL: 'https://images-ext-1.discordapp.net/external/id/poster.jpg' } },
+    makeEmbed({ type: EmbedType.GIFV, thumbnail: { url: 'https://media.tenor.com/id/animation.gif' } }),
+    makeEmbed({ type: EmbedType.GIFV, thumbnail: { url: 'https://example.com/poster.jpg', proxy_url: 'https://images-ext-1.discordapp.net/external/id/poster.jpg' } }),
   ] })).toEqual([expect.objectContaining({ name: 'animation.gif', url: 'https://media.tenor.com/id/animation.gif' })]);
+});
+test('real discord.js Embed objects expose their type in data, not on the instance', () => {
+  const embed = makeEmbed({ type: EmbedType.GIFV, video: { url: 'https://media.tenor.com/id/cat.mp4' } });
+  expect('type' in embed).toBe(false);
+  expect(embed.data.type).toBe('gifv');
+  expect(extractDiscordMedia({ ...base, embeds: [embed] })).toEqual([expect.objectContaining({ contentType: 'video/mp4', loop: true })]);
+});
+test('a direct image or GIF link may be stored in thumbnail, not image', () => {
+  const url = 'https://images-ext-1.discordapp.net/external/token/linked.gif';
+  const embed = makeEmbed({ type: EmbedType.Image, thumbnail: { url: 'https://example.com/linked.gif', proxy_url: url } });
+  expect(extractDiscordMedia({ ...base, embeds: [embed] })).toEqual([expect.objectContaining({ url, name: 'image.jpg' })]);
+});
+test('recognizes an extensionless GIF video even though the video getter returns a new object each time', () => {
+  const url = 'https://images-ext-1.discordapp.net/external/token/animation';
+  const embed = makeEmbed({ type: EmbedType.GIFV, video: { url } });
+  expect(embed.video).not.toBe(embed.video);
+  expect(extractDiscordMedia({ ...base, embeds: [embed] })).toEqual([expect.objectContaining({ url, contentType: 'video/mp4', loop: true })]);
 });

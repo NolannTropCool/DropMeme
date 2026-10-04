@@ -1,10 +1,10 @@
+import type { Embed } from 'discord.js';
 import { isDiscordMediaUrl, type IncomingMedia } from './media.js';
 
-interface EmbedAsset { url?: string | null; proxyURL?: string | null }
 export interface MediaMessage {
   id: string;
   attachments: { values(): IterableIterator<{ id: string; url: string; name: string; contentType: string | null; size: number }> };
-  embeds: readonly { type?: string | null; image?: EmbedAsset | null; video?: EmbedAsset | null; thumbnail?: EmbedAsset | null }[];
+  embeds: readonly Pick<Embed, 'data' | 'image' | 'video' | 'thumbnail'>[];
 }
 
 /** Discord unfurls GIF picker links asynchronously. Accept files, never execute external players. */
@@ -16,17 +16,20 @@ export function extractDiscordMedia(message: MediaMessage): IncomingMedia[] {
   }
   for (const [index, embed] of message.embeds.entries()) {
     if (result.length >= 10) break;
-    const gif = embed.type === 'gifv';
-    const animatedThumbnail = [embed.thumbnail?.proxyURL, embed.thumbnail?.url].some(url => {
+    // Embed has no `type` getter. Read the raw API data, and capture asset getters once:
+    // each getter returns a fresh object, so comparing against a second embed.video read fails.
+    const { data, image, video, thumbnail } = embed;
+    const gif = data.type === 'gifv';
+    const animatedThumbnail = [thumbnail?.proxyURL, thumbnail?.url].some(url => {
       if (!url || !isDiscordMediaUrl(url)) return false;
       return new URL(url).pathname.toLowerCase().endsWith('.gif');
-    }) ? embed.thumbnail : undefined;
-    const asset = gif ? embed.video ?? embed.image ?? animatedThumbnail : embed.image ?? (embed.type === 'image' ? embed.thumbnail : undefined);
+    }) ? thumbnail : undefined;
+    const asset = gif ? video ?? image ?? animatedThumbnail : image ?? (data.type === 'image' ? thumbnail : undefined);
     const url = [asset?.proxyURL, asset?.url].find(value => value && isDiscordMediaUrl(value));
     if (!url) continue;
     const extension = new URL(url).pathname.split('.').at(-1)?.toLowerCase();
-    const video = gif && extension !== 'gif' && (extension === 'mp4' || extension === 'webm' || asset === embed.video);
-    result.push({ url, name: video ? `animation.${extension === 'webm' ? 'webm' : 'mp4'}` : gif ? 'animation.gif' : 'image.jpg', contentType: video ? (extension === 'webm' ? 'video/webm' : 'video/mp4') : null, size: 0, sourceId: `${message.id}:embed:${index}`, ...(video ? { loop: true } : {}) });
+    const isVideo = gif && extension !== 'gif' && (extension === 'mp4' || extension === 'webm' || asset === video);
+    result.push({ url, name: isVideo ? `animation.${extension === 'webm' ? 'webm' : 'mp4'}` : gif ? 'animation.gif' : 'image.jpg', contentType: isVideo ? (extension === 'webm' ? 'video/webm' : 'video/mp4') : null, size: 0, sourceId: `${message.id}:embed:${index}`, ...(isVideo ? { loop: true } : {}) });
   }
   return result;
 }

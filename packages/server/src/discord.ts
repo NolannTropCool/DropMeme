@@ -38,16 +38,19 @@ export async function registerCommand(config: Config, api?: Pick<REST, 'get' | '
   catch (error) { throw registrationError('command', error); }
 }
 
-export class DiscordBot implements DiscordBridge {
-  private readonly client = new Client({
+export function createDiscordClient(): Client {
+  return new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     // DropMeme does not need Discord message history or a growing message cache.
     makeCache: Options.cacheWithLimits({ MessageManager: 0, PresenceManager: 0 }),
     partials: [Partials.Message],
   });
+}
+
+export class DiscordBot implements DiscordBridge {
   private application: Application | undefined;
 
-  constructor(private readonly config: Config) {}
+  constructor(private readonly config: Config, private readonly client: Client = createDiscordClient()) {}
   connected(): boolean { return this.client.isReady(); }
 
   async channelName(id: string): Promise<string | undefined> {
