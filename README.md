@@ -26,14 +26,14 @@ La commande `/dropmeme` est enregistrée au démarrage uniquement dans le serveu
 
 ## Déployer sur le mini-PC Linux
 
-Prérequis : Docker Engine + Compose, un nom de domaine pointant vers la machine et les ports TCP 80/443 accessibles. Le port UDP 443 est optionnel (HTTP/3). Si le mini-PC est derrière une box, configurez la redirection des ports ; un accès sous CGNAT nécessite un reverse proxy HTTPS joignable ou un tunnel externe.
+Prérequis : Docker Engine + Compose et un reverse proxy HTTPS existant, par exemple Traefik ou celui de Coolify. Ce Compose lance uniquement DropMeme : aucun proxy supplémentaire et aucun port 80/443 publié. Le proxy doit pouvoir joindre le service `server` sur son port interne **3000** et relayer les WebSockets.
 
 ```sh
 cp .env.example .env
 chmod 600 .env
 ```
 
-Renseignez `.env` dans un éditeur : `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `ALLOWED_CHANNEL_IDS`, `DOMAIN` et `PUBLIC_URL`. `DOMAIN` est le nom d’hôte seul et `PUBLIC_URL` sa forme `https://…`, sans chemin. Ne commitez jamais ce fichier.
+Renseignez `.env` dans un éditeur : `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `ALLOWED_CHANNEL_IDS` et `PUBLIC_URL`. `PUBLIC_URL` est l’adresse HTTPS routée par Traefik, sans chemin. Ne commitez jamais ce fichier. Avec Coolify, renseignez ces valeurs dans les variables du service, attribuez son domaine HTTPS au service `server` et sélectionnez le port cible `3000`. Avec un Traefik autonome, rattachez `server` au réseau Docker existant du proxy et configurez sa route vers ce port ; le nom de ce réseau dépend de votre installation.
 
 `JOIN_KEY` est optionnel : sans cette variable, seul le code Discord permet de s’abonner. Pour autoriser l’abonnement par ID, générez une clé avec `openssl rand -hex 32`, renseignez-la dans `.env` et partagez-la uniquement avec les abonnés autorisés. Elle donne accès à **tous les salons de la liste autorisée** ; utilisez les codes pour déléguer l’accès salon par salon.
 
@@ -43,9 +43,22 @@ docker compose logs --tail=100 server
 curl --fail https://dropmeme.example.com/readyz
 ```
 
-Caddy fournit automatiquement HTTPS et relaie les WebSockets. Le serveur n’est pas exposé directement ; les données SQLite et les certificats sont conservés dans des volumes Docker. `/healthz` indique que le processus fonctionne ; `/readyz` renvoie 503 si Discord est déconnecté. L’application cliente indique alors « Discord indisponible ».
+Traefik gère HTTPS et relaie les WebSockets. Les données SQLite sont conservées dans le volume `dropmeme_data`. `/healthz` indique que le processus fonctionne ; `/readyz` renvoie 503 si Discord est déconnecté. L’application cliente indique alors « Discord indisponible ».
 
-Le bot valide les salons au démarrage. Un mauvais token, un intent non activé ou un salon inaccessible fait échouer le démarrage avec un diagnostic. Les plafonds par défaut sont 25 Mo par média, 100 appareils enregistrés, un cache média de 64 Mo et quatre téléchargements simultanés. Le téléchargement est partagé entre les clients ; chaque affichage utilise néanmoins la bande passante sortante du mini-PC. Ajustez `MAX_MEDIA_MB` et `MAX_CLIENTS` pour votre machine. La limitation des tentatives d’invitation est globale derrière Caddy (10 par minute), intentionnellement conservatrice pour un petit serveur.
+Le bot valide les salons au démarrage. Un mauvais token, un intent non activé ou un salon inaccessible fait échouer le démarrage avec un diagnostic. Les plafonds par défaut sont 25 Mo par média, 100 appareils enregistrés, un cache média de 64 Mo et quatre téléchargements simultanés. Le téléchargement est partagé entre les clients ; chaque affichage utilise néanmoins la bande passante sortante du mini-PC. Ajustez `MAX_MEDIA_MB` et `MAX_CLIENTS` pour votre machine. La limitation des tentatives d’invitation est globale derrière le proxy (10 par minute), intentionnellement conservatrice pour un petit serveur.
+
+### Discord « Missing Access » et conteneur unhealthy
+
+Le serveur attend l’initialisation Discord avant d’écouter sur le port 3000. Si Discord refuse l’accès, le processus s’arrête et le healthcheck échoue ; le diagnostic utile se trouve dans les **logs du service server**, pas dans la trace du déploiement Coolify.
+
+Au démarrage, DropMeme vérifie que `DISCORD_APPLICATION_ID` correspond au token fourni, que `DISCORD_GUILD_ID` est accessible au bot, puis enregistre `/dropmeme`. Un échec indique l’opération concernée sans afficher de secret.
+
+- **Identification du bot / 401** : `DISCORD_TOKEN` doit être le token de la section Bot du Developer Portal, pas le client secret OAuth.
+- **Accès au serveur / 50001 ou 10004** : `DISCORD_GUILD_ID` doit être l’ID du serveur Discord, pas un ID de salon. Vérifiez que ce même bot figure dans la liste des membres du serveur.
+- **Enregistrement de /dropmeme / 50001** : réinvitez cette application dans le serveur avec les scopes `bot` et `applications.commands` depuis OAuth2 → URL Generator. Il n’est pas nécessaire de lui donner Administrator.
+- **Salon inaccessible** : tous les IDs de `ALLOWED_CHANNEL_IDS` doivent appartenir à ce serveur, et le bot doit avoir View Channel dans chacun, y compris dans les salons privés.
+
+Après correction des variables ou de l’installation Discord, redéployez. Retirer le healthcheck ne corrige pas un refus d’accès Discord.
 
 Pour sauvegarder SQLite, arrêtez le service avant de copier le volume `dropmeme_data`, puis redémarrez-le ; préservez aussi les fichiers `-wal` et `-shm` s’ils existent. Les fichiers média ne sont pas archivés. Modifier `ALLOWED_CHANNEL_IDS` puis recréer le serveur retire l’accès aux salons concernés, y compris pour les jetons existants.
 

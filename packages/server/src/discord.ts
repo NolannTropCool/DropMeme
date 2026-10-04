@@ -2,13 +2,39 @@ import { Client, Events, GatewayIntentBits, MessageFlags, Options, PermissionFla
 import type { Config } from './config.js';
 import type { Application, DiscordBridge } from './app.js';
 
-export async function registerCommand(config: Config): Promise<void> {
+function registrationError(stage: 'identity' | 'guild' | 'command', error: unknown): Error {
+  const failure = typeof error === 'object' && error !== null ? error as { code?: unknown; status?: unknown } : {};
+  const code = typeof failure.code === 'number' ? failure.code : undefined;
+  const status = typeof failure.status === 'number' ? failure.status : undefined;
+  const operation = { identity: 'identification du bot', guild: 'accès au serveur Discord', command: 'enregistrement de /dropmeme' }[stage];
+  if (status === 401 || code === 50014) return new Error(`Discord — ${operation} : token du bot invalide. Vérifiez DISCORD_TOKEN dans les variables du service server.`);
+  const details = code === 50001 ? '50001 Missing Access' : code === 50013 ? '50013 Missing Permissions' : code === 10004 ? '10004 Unknown Guild' : status ? `HTTP ${status}` : 'requête échouée';
+  const help = stage === 'guild'
+    ? 'Vérifiez DISCORD_GUILD_ID (ID du serveur, pas du salon) et que le bot est membre de ce serveur.'
+    : stage === 'command'
+      ? 'Vérifiez l’installation de cette application dans le serveur avec les scopes bot et applications.commands. Réinvitez le bot si nécessaire.'
+      : 'Vérifiez le token du bot et l’accès réseau à Discord.';
+  // Never serialize DiscordAPIError: its request data can contain credentials.
+  return new Error(`Discord — ${operation} (${details}). ${help}`);
+}
+
+export async function registerCommand(config: Config, api?: Pick<REST, 'get' | 'post'>): Promise<void> {
   const command = new SlashCommandBuilder()
     .setName('dropmeme')
     .setDescription('Connecter DropMeme à ce salon (code privé valable 10 minutes)');
-  const rest = new REST({ version: '10' }).setToken(config.discordToken);
+  const rest = api ?? new REST({ version: '10' }).setToken(config.discordToken);
+  let identity: { id?: string };
+  try { identity = await rest.get(Routes.oauth2CurrentApplication()) as { id?: string }; }
+  catch (error) { throw registrationError('identity', error); }
+  if (!identity.id) throw new Error('Discord : impossible de vérifier l’identifiant de l’application du bot.');
+  if (identity.id !== config.applicationId) {
+    throw new Error(`DISCORD_APPLICATION_ID ne correspond pas au bot du DISCORD_TOKEN. Utilisez l’ID d’application ${identity.id}.`);
+  }
+  try { await rest.get(Routes.guild(config.guildId)); }
+  catch (error) { throw registrationError('guild', error); }
   // POST upserts only this command; never overwrite unrelated bot commands.
-  await rest.post(Routes.applicationGuildCommands(config.applicationId, config.guildId), { body: command.toJSON() });
+  try { await rest.post(Routes.applicationGuildCommands(config.applicationId, config.guildId), { body: command.toJSON() }); }
+  catch (error) { throw registrationError('command', error); }
 }
 
 export class DiscordBot implements DiscordBridge {

@@ -1,6 +1,0 @@
-{$DOMAIN} {
-    # WebSocket upgrades are handled by Caddy. No query-string access logs:
-    # media URLs contain short-lived, read-only capability tickets.
-    reverse_proxy server:3000
-    header Strict-Transport-Security "max-age=31536000"
-}
