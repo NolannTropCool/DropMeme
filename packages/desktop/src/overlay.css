@@ -1,0 +1,9 @@
+:root { font-family: "Segoe UI", sans-serif; background: transparent; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#media-root { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+img, video { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
+.audio-tile { width: 100%; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; background: #1b211e; border: 1px solid #46584b; border-radius: 12px; color: #e5eae6; }
+.audio-symbol { font-size: 40px; color: #b2d9ba; }
+.audio-tile strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.audio-tile > span:last-of-type { color: #9cac9f; font-size: 12px; }

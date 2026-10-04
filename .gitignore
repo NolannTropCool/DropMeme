@@ -1,0 +1,16 @@
+node_modules/
+dist/
+target/
+packages/desktop/src-tauri/gen/
+packages/desktop/src-tauri/icons/android/
+packages/desktop/src-tauri/icons/ios/
+packages/desktop/src-tauri/icons/Square*.png
+packages/desktop/src-tauri/icons/StoreLogo.png
+.env
+.env.*
+!.env.example
+data/
+*.log
+playwright-report/
+test-results/
+.DS_Store

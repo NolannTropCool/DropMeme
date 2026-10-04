@@ -1,0 +1,60 @@
+name: Checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Validate deployment configuration
+        run: DROPMEME_ENV_FILE=.env.example docker compose --env-file .env.example config --quiet
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-report
+          path: playwright-report/
+          retention-days: 7
+      - run: docker build -t dropmeme:test .
+      - name: Smoke test production container
+        run: docker run --rm -i --read-only --tmpfs /data:uid=1000,gid=1000 --tmpfs /tmp --entrypoint node dropmeme:test --input-type=module < scripts/container-smoke.mjs
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+      - run: npm ci
+      - run: cargo fmt --manifest-path packages/desktop/src-tauri/Cargo.toml --check
+      - run: npm run build:shared
+      - run: npm run build -w @dropmeme/desktop
+      - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --locked --features custom-protocol --all-targets -- -D warnings
+      - run: npm run build:windows -- --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DropMeme-Windows-x64
+          path: packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30

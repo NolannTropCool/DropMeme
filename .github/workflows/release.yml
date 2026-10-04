@@ -1,0 +1,53 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build:windows -- --ci
+      - name: Installer checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | ForEach-Object {
+            $installerHash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($installerHash.Hash.ToLower())  $($_.Name)" | Out-File -FilePath "$($_.FullName).sha256" -Encoding ascii
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DropMeme-Windows-x64
+          path: |
+            packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            packages/desktop/src-tauri/target/release/bundle/nsis/*.sha256
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: DropMeme-Windows-x64
+          path: installers
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" installers/* --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "DropMeme $GITHUB_REF_NAME"

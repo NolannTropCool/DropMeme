@@ -1,0 +1,24 @@
+{
+  "name": "dropmeme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=24.0.0 <25" },
+  "scripts": {
+    "build:shared": "npm run build -w @dropmeme/shared",
+    "build": "npm run build:shared && npm run build -w @dropmeme/server && npm run build -w @dropmeme/desktop",
+    "check": "npm run build:shared && npm run check --workspaces --if-present",
+    "test": "npm run build:shared && vitest run",
+    "dev:server": "npm run build:shared && npm run dev -w @dropmeme/server",
+    "dev:desktop": "npm run build:shared && npm run tauri -w @dropmeme/desktop -- dev",
+    "build:windows": "npm run build:shared && npm run tauri -w @dropmeme/desktop -- build --bundles nsis",
+    "test:e2e": "npm run build:shared && playwright test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3",
+    "@playwright/test": "^1.58.0"
+  }
+}
