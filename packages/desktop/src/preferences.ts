@@ -10,7 +10,13 @@ export async function readPreferences(): Promise<Preferences> {
   const raw = isTauri() ? await (await load('preferences.json', { defaults: {}, autoSave: false })).get<unknown>('preferences') : JSON.parse(localStorage.getItem('dropmeme-preferences') ?? 'null') as unknown;
   if (!raw || typeof raw !== 'object') return defaults();
   const v = raw as Partial<Preferences>;
-  const settings = settingsSchema.safeParse(v.settings);
+  // Preserve the single duration used by 0.1 when upgrading existing preferences.
+  const previous = v.settings as Partial<Settings> | undefined;
+  const settings = settingsSchema.safeParse(previous ? {
+    ...previous,
+    gifDurationSeconds: previous.gifDurationSeconds ?? previous.durationSeconds ?? defaultSettings.gifDurationSeconds,
+    videoDurationSeconds: previous.videoDurationSeconds ?? previous.durationSeconds ?? defaultSettings.videoDurationSeconds,
+  } : undefined);
   let server = '';
   try { if (v.server) server = normalizeServerUrl(v.server); } catch { /* Invalid saved URLs are ignored. */ }
   const subscription = v.subscription ? pairingResponseSchema.omit({ token: true }).safeParse(v.subscription) : undefined;

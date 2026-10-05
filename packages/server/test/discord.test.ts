@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { EmbedType, Events, Partials, REST, Routes } from 'discord.js';
+import { EmbedType, Events, Partials, REST, Routes, User } from 'discord.js';
 import { createDiscordClient, DiscordBot, registerCommand } from '../src/discord.js';
 import { createApplication } from '../src/app.js';
 import { makeMessage } from './discord-fixtures.js';
@@ -73,18 +73,23 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
   vi.spyOn(bot, 'channelName').mockResolvedValue('memes');
   const application = await createApplication(config, bot, { logger: false });
   const publish = vi.spyOn(application, 'publish');
+  const publishText = vi.spyOn(application, 'publishText');
   const channelId = [...config.allowedChannelIds][0]!;
   const url = 'https://media.tenor.com/fixtureAAAAC/cat.mp4';
   try {
     await bot.start(application);
     const original = makeMessage(client, guildId, channelId);
+    original.author = Reflect.construct(User, [client, { id: appId, username: 'Alice', discriminator: '0', global_name: 'Alice' }]) as User;
+    original.content = 'https://tenor.com/view/fixture';
     client.emit(Events.MessageCreate, original);
     expect(publish).not.toHaveBeenCalled();
+    expect(publishText).not.toHaveBeenCalled();
     const updated = makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }]);
+    Object.defineProperty(updated, 'id', { value: original.id });
     expect(updated.partial).toBe(true); expect(updated.author).toBeNull();
     client.emit(Events.MessageUpdate, original, updated);
     expect(publish).toHaveBeenCalledOnce();
-    expect(publish).toHaveBeenCalledWith(channelId, 'Discord', expect.objectContaining({ url, contentType: 'video/mp4', loop: true }));
+    expect(publish).toHaveBeenCalledWith(channelId, 'Alice', expect.objectContaining({ url, contentType: 'video/mp4', loop: true }));
     expect(publish.mock.results[0]?.value).toBe(true);
     // Repeated updates are rejected by the media catalog, not replayed to viewers.
     client.emit(Events.MessageUpdate, original, updated);
@@ -93,5 +98,11 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
     client.emit(Events.MessageUpdate, original, makeMessage(client, appId, channelId, [{ type: EmbedType.GIFV, video: { url } }]));
     client.emit(Events.MessageUpdate, original, makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }], 6 * 60_000));
     expect(publish).toHaveBeenCalledTimes(2);
+    const text = makeMessage(client, guildId, channelId); text.author = original.author; text.content = 'Bonjour le salon';
+    client.emit(Events.MessageCreate, text);
+    expect(publishText).toHaveBeenCalledWith(channelId, 'Alice', 'Bonjour le salon', `${text.id}:text`);
+    expect(publishText.mock.results[0]?.value).toBe(true);
+    client.emit(Events.MessageUpdate, text, text);
+    expect(publishText.mock.results[1]?.value).toBe(false);
   } finally { await bot.stop(); await application.app.close(); }
 });

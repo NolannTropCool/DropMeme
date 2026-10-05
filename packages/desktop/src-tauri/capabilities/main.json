@@ -4,7 +4,7 @@
   "description": "Settings and overlay control, restricted to the main local window.",
   "windows": ["main"],
   "permissions": [
-    "core:default", "store:default", "autostart:default",
+    "core:default", "store:default", "autostart:default", "updater:default",
     "core:window:allow-set-size", "core:window:allow-set-position",
     "core:window:allow-set-ignore-cursor-events", "core:window:allow-show",
     "core:window:allow-hide", "core:window:allow-destroy", "core:window:allow-set-focus", "core:window:allow-available-monitors", "core:window:allow-primary-monitor"

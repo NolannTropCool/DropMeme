@@ -1,22 +1,22 @@
-import type { MediaEvent, Settings } from '@dropmeme/shared';
+import { isAnimation, type MediaEvent, type Settings } from '@dropmeme/shared';
 
 /** FIFO with bounded memory. Pause discards incoming media rather than replaying a flood. */
 export class MediaQueue {
   private pending: MediaEvent[] = [];
-  private active: MediaEvent | undefined;
+  private active = new Map<string, MediaEvent>();
   private seen = new Set<string>();
   private paused = false;
 
-  constructor(private settings: Settings, private readonly display: (media: MediaEvent) => void, private readonly changed: (pending: number, active: boolean) => void = () => {}) {}
+  constructor(private settings: Settings, private readonly display: (media: MediaEvent) => void, private readonly changed: (pending: number, active: boolean, count: number) => void = () => {}) {}
 
   configure(settings: Settings): void {
     this.settings = settings;
     this.pending = this.pending.filter(media => this.accepts(media)).slice(0, settings.maxQueue);
-    this.notify();
+    this.next();
   }
 
   private accepts(media: MediaEvent): boolean {
-    return media.kind === 'image' || (media.kind === 'video' && media.loop === true) ? this.settings.images : media.kind === 'video' ? this.settings.videos : this.settings.audio && this.settings.sound;
+    return media.kind === 'text' ? this.settings.texts : media.kind === 'image' || (media.kind === 'video' && media.loop === true) ? this.settings.images : media.kind === 'video' ? this.settings.videos : this.settings.audio && this.settings.sound;
   }
 
   enqueue(media: MediaEvent): boolean {
@@ -28,22 +28,31 @@ export class MediaQueue {
   }
 
   complete(id: string): void {
-    if (this.active?.id !== id) return;
-    this.active = undefined; this.next();
+    if (!this.active.delete(id)) return;
+    this.next();
   }
 
-  clear(): void { this.pending = []; this.active = undefined; this.notify(); }
+  clear(): void { this.pending = []; this.active.clear(); this.notify(); }
   reset(): void { this.clear(); this.seen.clear(); }
   setPaused(value: boolean): void { this.paused = value; if (value) this.clear(); else this.next(); }
-  currentId(): string | undefined { return this.active?.id; }
+  currentId(): string | undefined { return this.active.keys().next().value; }
+  currentIds(): string[] { return [...this.active.keys()]; }
+  has(id: string): boolean { return this.active.has(id); }
+
+  private canStart(media: MediaEvent): boolean {
+    if (!this.active.size) return true;
+    const limit = this.settings.multiPlacement === 'zones' ? Math.min(this.settings.maxSimultaneous, Math.max(1, this.settings.zones.length)) : this.settings.maxSimultaneous;
+    return this.settings.multiDisplay && isAnimation(media) && [...this.active.values()].every(isAnimation) && this.active.size < limit;
+  }
 
   private next(): void {
-    if (!this.paused && !this.active) {
-      do { this.active = this.pending.shift(); }
-      while (this.active && Date.now() - this.active.createdAt > 5 * 60_000);
-      if (this.active) this.display(this.active);
+    while (!this.paused && this.pending.length) {
+      const media = this.pending[0]!;
+      if (Date.now() - media.createdAt > 5 * 60_000) { this.pending.shift(); continue; }
+      if (!this.canStart(media)) break;
+      this.pending.shift(); this.active.set(media.id, media); this.display(media);
     }
     this.notify();
   }
-  private notify(): void { this.changed(this.pending.length, !!this.active); }
+  private notify(): void { this.changed(this.pending.length, this.active.size > 0, this.active.size); }
 }

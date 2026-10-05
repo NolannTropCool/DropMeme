@@ -2,7 +2,7 @@
 :root { font-family: system, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e8e8e6; background: #141615; font-synthesis: none; font-size: 14px; color-scheme: dark; --accent: #b2d9ba; --line: #303330; --muted: #a3aaa4; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .5; }
 [hidden] { display: none !important; }
@@ -20,7 +20,19 @@ h1 { font-size: 22px; letter-spacing: -.7px; margin: 0; font-weight: 650; }
 h2 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -.3px; }
 .eyebrow { font-size: 10px; letter-spacing: 1.3px; color: #7e8b81; }
 label { display: block; font-size: 12px; margin-bottom: 8px; color: #c5cbc6; }
-input:not([type=checkbox]):not([type=range]), select { width: 100%; background: #141715; border: 1px solid #373d38; padding: 11px 12px; border-radius: 7px; color: #f2f3ef; min-width: 0; }
+input:not([type=checkbox]):not([type=range]), select, textarea { width: 100%; background: #141715; border: 1px solid #373d38; padding: 11px 12px; border-radius: 7px; color: #f2f3ef; min-width: 0; }
+.social-panel, .release-panel { grid-column: 1 / -1; }
+.item-list { list-style: none; padding: 0; margin: 12px 0; }
+.item-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.item-list span { overflow-wrap: anywhere; }
+.social-panel form { border-top: 1px solid var(--line); padding-top: 20px; }
+.social-panel form label:not(:first-child) { margin-top: 16px; }
+textarea { resize: vertical; }
+.release-panel details { margin-top: 20px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+#changelog h3 { font-size: 14px; margin: 22px 0 8px; }
+#changelog ul { padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+#update-progress { width: 100%; accent-color: var(--accent); margin-top: 10px; }
 input::placeholder { color: #6d766f; }
 input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .mode-tabs { display: flex; border-bottom: 1px solid var(--line); gap: 16px; margin: 22px 0 18px; }

@@ -51,14 +51,23 @@ async fn create_placement(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn create_overlay(window: WebviewWindow) -> Result<(), String> {
+async fn create_overlay(window: WebviewWindow, label: Option<String>) -> Result<(), String> {
     require_main(&window)?;
-    if window.app_handle().get_webview_window("overlay").is_some() {
+    let label = label.unwrap_or_else(|| "overlay".into());
+    if label != "overlay"
+        && !label
+            .strip_prefix("overlay-")
+            .and_then(|index| index.parse::<u8>().ok())
+            .is_some_and(|index| (1..8).contains(&index))
+    {
+        return Err("Superposition invalide.".into());
+    }
+    if window.app_handle().get_webview_window(&label).is_some() {
         return Ok(());
     }
     let builder = WebviewWindowBuilder::new(
         window.app_handle(),
-        "overlay",
+        &label,
         WebviewUrl::App("overlay.html".into()),
     )
     .title("DropMeme · Média")
@@ -168,6 +177,7 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             load_token,

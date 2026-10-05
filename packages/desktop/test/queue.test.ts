@@ -1,11 +1,33 @@
 import { describe, expect, test, vi } from 'vitest';
-import { defaultSettings, type MediaEvent } from '@dropmeme/shared';
+import { defaultSettings, playbackDuration, type MediaEvent } from '@dropmeme/shared';
 import { MediaQueue } from '../src/queue.js';
 
 function event(id: string, kind: MediaEvent['kind'] = 'image'): MediaEvent {
   return { type: 'media', id, channelId: '123456789012345678', kind, url: `https://example.com/v1/media/${id}`, name: id, author: 'Alice', createdAt: Date.now() };
 }
 describe('bounded media queue', () => {
+  test('parallel GIFs release only their own slot and retain FIFO ordering for ordinary videos', () => {
+    const display = vi.fn(); const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 2 }, display);
+    const gif = (id: string) => ({ ...event(id), animation: true });
+    queue.enqueue(gif('a')); queue.enqueue(gif('b')); queue.enqueue(gif('c')); queue.enqueue(event('v', 'video')); queue.enqueue(gif('d'));
+    expect(queue.currentIds()).toEqual(['a', 'b']);
+    queue.complete('b'); expect(queue.currentIds()).toEqual(['a', 'c']);
+    queue.complete('a'); expect(queue.currentIds()).toEqual(['c']);
+    queue.complete('c'); expect(queue.currentIds()).toEqual(['v']);
+    queue.complete('v'); expect(queue.currentIds()).toEqual(['d']);
+    expect(display.mock.calls.map(call => call[0].id)).toEqual(['a', 'b', 'c', 'v', 'd']);
+  });
+  test('custom zones bound concurrency and durations distinguish GIFs, video and text', () => {
+    const settings = { ...defaultSettings, multiDisplay: true, multiPlacement: 'zones' as const, zones: [{ id: 'one', monitor: 'primary', position: 'custom' as const, x: 0, y: 0, width: 320, height: 240 }], gifDurationSeconds: 3, videoDurationSeconds: 40, durationSeconds: 7 };
+    const queue = new MediaQueue(settings, vi.fn());
+    queue.enqueue({ ...event('a'), animation: true }); queue.enqueue({ ...event('b'), animation: true });
+    expect(queue.currentIds()).toEqual(['a']);
+    expect(playbackDuration({ ...event('gif', 'video'), loop: true }, settings)).toBe(3);
+    expect(playbackDuration({ ...event('webp'), name: 'cat.webp' }, settings)).toBe(3);
+    expect(playbackDuration({ ...event('static-webp'), name: 'photo.webp', animation: false }, settings)).toBe(7);
+    expect(playbackDuration(event('mov', 'video'), settings)).toBe(40);
+    expect(playbackDuration(event('text', 'text'), settings)).toBe(7);
+  });
   test('Discord GIF animations encoded as MP4 follow the Images & GIF filter, not the video filter', () => {
     const queue = new MediaQueue({ ...defaultSettings, videos: false }, vi.fn());
     expect(queue.enqueue({ ...event('gif', 'video'), loop: true })).toBe(true);

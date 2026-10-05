@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
   "description": "Overlay can receive media and report playback completion; no file or credential access.",
-  "windows": ["overlay"],
+  "windows": ["overlay", "overlay-?"],
   "permissions": ["core:event:default"]
 }

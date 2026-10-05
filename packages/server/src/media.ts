@@ -6,18 +6,20 @@ const types = new Map<string, MediaKind>([
   ['image/png', 'image'], ['image/jpeg', 'image'], ['image/gif', 'image'],
   ['image/webp', 'image'], ['image/avif', 'image'],
   ['video/mp4', 'video'], ['video/webm', 'video'],
+  ['video/quicktime', 'video'],
   ['audio/mpeg', 'audio'], ['audio/ogg', 'audio'], ['audio/wav', 'audio'],
   ['audio/x-wav', 'audio'], ['audio/mp4', 'audio'], ['audio/webm', 'audio'],
 ]);
 const extensions: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', avif: 'image/avif', mp4: 'video/mp4', webm: 'video/webm',
-  mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
+  mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mov: 'video/quicktime',
 };
 
 export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean }
 export interface StoredMedia extends IncomingMedia {
   id: string; channelId: string; kind: MediaKind; author: string; createdAt: number;
+  bytes?: Buffer; text?: string; targetDeviceId?: string; animation?: boolean;
 }
 
 /** Only exact HTTPS media CDN hosts. Never fetch a message's arbitrary URL or an HTML player. */
@@ -25,7 +27,7 @@ export function isDiscordMediaUrl(value: string): boolean {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
-    if (url.hostname === 'media.tenor.com') return /^\/[A-Za-z0-9_-]+\/[^/]+\.(gif|mp4|webm)$/i.test(url.pathname);
+    if (url.hostname === 'media.tenor.com') return /^\/[A-Za-z0-9_-]+\/[^/]+\.(gif|mp4|webm|webp)$/i.test(url.pathname);
     return ['cdn.discordapp.com', 'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net'].includes(url.hostname) &&
       (url.pathname.startsWith('/attachments/') || url.pathname.startsWith('/external/'));
   } catch { return false; }
@@ -34,7 +36,7 @@ export function isDiscordMediaUrl(value: string): boolean {
 export function classifyMedia(media: IncomingMedia, maxBytes: number): MediaKind | undefined {
   if (!isDiscordMediaUrl(media.url) || media.size < 0 || media.size > maxBytes) return undefined;
   const contentType = media.contentType?.split(';')[0]?.toLowerCase();
-  if (contentType) return types.get(contentType);
+  if (contentType && !(contentType === 'application/octet-stream' && /\.mov$/i.test(media.name))) return types.get(contentType);
   return types.get(extensions[media.name.toLowerCase().split('.').at(-1) ?? ''] ?? '');
 }
 
@@ -48,10 +50,36 @@ export class MediaCatalog {
     if (!kind) return undefined;
     const id = input.sourceId ? createHash('sha256').update(`${channelId}:${input.sourceId}`).digest('hex') : randomUUID();
     if (this.entries.has(id)) return undefined;
-    const media: StoredMedia = { ...input, name: input.name.slice(0, 256), id, channelId, author: author.slice(0, 100), kind, createdAt: now };
-    this.entries.set(media.id, media);
-    if (this.entries.size > 500) this.entries.delete(this.entries.keys().next().value!);
+    const media: StoredMedia = { ...input, name: input.name.slice(0, 256), id, channelId, author: author.slice(0, 100), kind, createdAt: now, animation: input.loop === true || input.contentType === 'image/gif' || /\.(gif|webp)$/i.test(input.name) };
+    this.insert(media);
     return media;
+  }
+
+  addUpload(channelId: string, author: string, bytes: Buffer, name: string, contentType: string, targetDeviceId?: string): StoredMedia | undefined {
+    this.prune(Date.now());
+    const kind = types.get(contentType);
+    if (!kind || !bytes.length || bytes.length > Math.min(this.maxBytes, 64 * 1024 * 1024)) return undefined;
+    const id = randomUUID();
+    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind, bytes, name: name.slice(0, 256), contentType, size: bytes.length, url: `upload:${id}`, createdAt: Date.now(), animation: contentType === 'image/gif' || (contentType === 'image/webp' && bytes.includes(Buffer.from('ANIM'))), ...(targetDeviceId ? { targetDeviceId } : {}) };
+    this.insert(media); return media;
+  }
+
+  addText(channelId: string, author: string, text: string, targetDeviceId?: string, sourceId?: string): StoredMedia | undefined {
+    this.prune(Date.now());
+    if (!text.trim() || text.length > 2000) return undefined;
+    const id = sourceId ? createHash('sha256').update(`${channelId}:${sourceId}`).digest('hex') : randomUUID();
+    if (this.entries.has(id)) return undefined;
+    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind: 'text', text, name: 'Message', contentType: 'text/plain', size: Buffer.byteLength(text), url: `text:${id}`, createdAt: Date.now(), ...(targetDeviceId ? { targetDeviceId } : {}) };
+    this.insert(media); return media;
+  }
+
+  private insert(media: StoredMedia): void {
+    this.entries.set(media.id, media);
+    let bytes = [...this.entries.values()].reduce((total, value) => total + (value.bytes?.length ?? 0), 0);
+    for (const [id, value] of this.entries) {
+      if (this.entries.size <= 500 && bytes <= 64 * 1024 * 1024) break;
+      bytes -= value.bytes?.length ?? 0; this.entries.delete(id);
+    }
   }
 
   get(id: string, now = Date.now()): StoredMedia | undefined {

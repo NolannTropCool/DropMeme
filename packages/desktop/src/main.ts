@@ -2,6 +2,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseSchema, normalizeServerUrl, type MediaEvent } from '@dropmeme/shared';
+import { Social } from './social.js';
+import { initializeUpdates } from './updates.js';
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
 import { Connection } from './connection.js';
@@ -18,15 +20,17 @@ let connection: Connection | undefined;
 let mode: 'code' | 'channel' = 'code';
 let paused = false;
 let previewing = false;
+const previews = new Set<string>();
 let placing = false;
 let connected = false;
 const display = new Display();
+const social = new Social(() => preferences);
 const queue = new MediaQueue(preferences.settings, media => {
-  void display.show(media, preferences.settings).catch(error => {
-    message(error instanceof Error ? error.message : 'Affichage impossible.'); queue.complete(media.id);
+  void display.show(media, preferences.settings).catch(async error => {
+    message(error instanceof Error ? error.message : 'Affichage impossible.'); await display.hide(media.id); queue.complete(media.id);
   });
-}, (pending, active) => {
-  $('queue-status').textContent = paused ? 'Réception en pause' : `${active ? 'Un média à l’écran · ' : ''}${pending ? `${pending} en attente` : 'Aucun média en attente'}`;
+}, (pending, _active, count) => {
+  $('queue-status').textContent = paused ? 'Réception en pause' : `${count ? `${count} média(s) à l’écran · ` : ''}${pending ? `${pending} en attente` : 'Aucun média en attente'}`;
 });
 
 function status(text: string, online = false): void {
@@ -52,16 +56,19 @@ function startConnection(token: string): void {
   connection = new Connection(preferences.server, token, event => {
     if (event.type === 'ready') {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
+      social.setOnline(event.protocol === 2);
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
     else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
+    else if (event.type === 'presence') social.setPeers(event.peers);
     else if (event.type === 'error') message(event.message);
   }, state => {
     connected = false;
+    social.setOnline(false);
     status(state === 'connecting' ? 'Connexion…' : state === 'offline' ? 'Reconnexion…' : 'Déconnecté');
     if (state === 'expired') message('Cet abonnement a été révoqué. Désabonnez-vous puis utilisez une nouvelle invitation.');
     if (state === 'duplicate') message('Cet appareil est déjà connecté dans une autre instance.');
-  });
+  }, { name: preferences.settings.displayName, acceptDirect: preferences.settings.acceptDirect });
   connection.start(); subscriptionUi();
 }
 
@@ -108,6 +115,7 @@ $('disconnect').onclick = async () => {
       if (!response.ok && response.status !== 401) throw new Error('Le serveur n’a pas confirmé le désabonnement.');
     }
     connection?.stop(); connection = undefined; connected = false;
+    social.setOnline(false);
     queue.reset(); await display.hide(); await clearToken();
     preferences.subscription = undefined; await save(); subscriptionUi(); status('Déconnecté'); message('');
   } catch { message('Le serveur est inaccessible. Le jeton est conservé pour pouvoir révoquer l’abonnement au prochain essai.'); }
@@ -115,37 +123,49 @@ $('disconnect').onclick = async () => {
 };
 
 $('pause').onclick = () => {
-  paused = !paused; queue.setPaused(paused); previewing = false;
+  paused = !paused; queue.setPaused(paused); previewing = false; previews.clear();
   void display.hide(); $('pause').textContent = paused ? 'Reprendre' : 'Mettre en pause';
 };
 $('skip').onclick = async () => {
-  const id = queue.currentId(); previewing = false; await display.hide(); if (id) queue.complete(id);
+  const id = queue.currentId() ?? previews.values().next().value;
+  if (id) { await display.hide(id); previews.delete(id); previewing = previews.size > 0; queue.complete(id); }
 };
-$('clear').onclick = () => { queue.clear(); previewing = false; void display.hide(); };
+$('clear').onclick = () => { queue.clear(); previewing = false; previews.clear(); void display.hide(); };
 $('hide').onclick = () => { if (isTauri()) void getCurrentWindow().hide(); else message('La réduction dans la zone de notification est disponible dans l’application desktop.'); };
 
 $('preview').onclick = async () => {
-  const id = queue.currentId(); if (id) { message('Passez le média en cours avant de tester l’affichage.'); return; }
+  const id = queue.currentId(); if (id || previewing) { message('Passez ou videz les médias en cours avant de tester l’affichage.'); return; }
   previewing = true;
   const button = $<HTMLButtonElement>('preview'); button.disabled = true;
   message('Ouverture de la superposition…');
-  const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}`, channelId: '123456789012345678', kind: 'image', url: new URL('/preview.gif', location.href).href, name: 'Aperçu DropMeme', author: 'DropMeme', createdAt: Date.now() };
-  try { await display.show(media, preferences.settings, true); message(''); }
-  catch (error) { previewing = false; message(error instanceof Error ? error.message : 'Aperçu impossible.'); }
+  const count = preferences.settings.multiDisplay ? (preferences.settings.multiPlacement === 'zones' ? Math.min(preferences.settings.maxSimultaneous, Math.max(1, preferences.settings.zones.length)) : preferences.settings.maxSimultaneous) : 1;
+  try {
+    await Promise.all(Array.from({ length: count }, async (_, i) => {
+      const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}-${i}`, channelId: '123456789012345678', kind: 'image', animation: true, url: new URL('/preview.gif', location.href).href, name: 'Aperçu DropMeme.gif', author: 'DropMeme', createdAt: Date.now() };
+      previews.add(media.id); await display.show(media, preferences.settings, true);
+    })); message('');
+  } catch (error) { previews.clear(); previewing = false; await display.hide(); message(error instanceof Error ? error.message : 'Aperçu impossible.'); }
   finally { button.disabled = placing; }
 };
 
-$('place').onclick = async () => {
+async function editPlacement(zoneId?: string): Promise<void> {
   if (placing) return;
   placing = true; previewing = false; queue.setPaused(true);
+  previews.clear();
   const controls = [...document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('.settings-panel input, .settings-panel select, .settings-panel button, #pause, #disconnect, #skip, #clear')];
   for (const control of controls) control.disabled = true;
   message('Déplacez le cadre sur votre écran et validez avec ✓. Les nouveaux médias sont ignorés pendant le placement.');
   try {
     await display.hide();
-    const result = await placeOverlay(preferences.settings);
+    const zone = preferences.settings.zones.find(item => item.id === zoneId);
+    const base = zone ? { ...preferences.settings, monitor: zone.monitor, position: 'custom' as const, customX: zone.x, customY: zone.y, width: zone.width, height: zone.height } : preferences.settings;
+    const result = await placeOverlay(base);
     if (result) {
-      preferences.settings = result; queue.configure(result); await save();
+      if (zoneId) {
+        const nextZone = { id: zoneId, monitor: result.monitor, position: 'custom' as const, x: result.customX, y: result.customY, width: result.width, height: result.height };
+        preferences.settings.zones = [...preferences.settings.zones.filter(item => item.id !== zoneId), nextZone];
+      } else preferences.settings = result;
+      queue.configure(preferences.settings); await save();
       $('saved').textContent = 'Disposition enregistrée pour cet écran.';
     }
     message('');
@@ -155,10 +175,12 @@ $('place').onclick = async () => {
     for (const control of controls) control.disabled = false;
     renderSettings();
   }
-};
+}
+$('place').onclick = () => { void editPlacement(); };
+$('add-zone').onclick = () => { if (preferences.settings.zones.length < 8) void editPlacement(crypto.randomUUID()); };
 
-const numbers = ['width', 'height', 'durationSeconds', 'volume', 'opacity', 'maxQueue'] as const;
-const booleans = ['sound', 'images', 'videos', 'audio', 'startMinimized'] as const;
+const numbers = ['width', 'height', 'durationSeconds', 'gifDurationSeconds', 'videoDurationSeconds', 'maxSimultaneous', 'volume', 'opacity', 'maxQueue'] as const;
+const booleans = ['sound', 'images', 'videos', 'audio', 'texts', 'acceptDirect', 'showAuthor', 'multiDisplay', 'startMinimized'] as const;
 function renderSettings(): void {
   for (const key of numbers) input(key).value = String(preferences.settings[key]);
   for (const key of booleans) input(key).checked = preferences.settings[key];
@@ -167,23 +189,42 @@ function renderSettings(): void {
   $('opacity-value').textContent = `${preferences.settings.opacity}%`;
   $('volume-value').textContent = `${preferences.settings.volume}%`;
   input('volume').disabled = !preferences.settings.sound;
+  input('displayName').value = preferences.settings.displayName;
+  $<HTMLSelectElement>('multiPlacement').value = preferences.settings.multiPlacement;
+  $('multi-fields').hidden = !preferences.settings.multiDisplay;
+  $('zones-fields').hidden = preferences.settings.multiPlacement !== 'zones';
+  $('zones-list').replaceChildren();
+  for (const [i, zone] of preferences.settings.zones.entries()) {
+    const row = document.createElement('li'); const label = document.createElement('span');
+    label.textContent = `Zone ${i + 1} · ${zone.width} × ${zone.height} · ${zone.monitor}`;
+    const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Placer'; edit.onclick = () => { void editPlacement(zone.id); };
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Supprimer'; remove.onclick = () => {
+      queue.clear(); previews.clear(); previewing = false; void display.hide();
+      preferences.settings.zones = preferences.settings.zones.filter(item => item.id !== zone.id); renderSettings(); void save();
+    };
+    row.append(label, edit, remove); $('zones-list').append(row);
+  }
+  $<HTMLButtonElement>('add-zone').disabled = preferences.settings.zones.length >= 8;
 }
 
-for (const key of [...numbers, ...booleans, 'position', 'monitor']) {
+for (const key of [...numbers, ...booleans, 'position', 'monitor', 'displayName', 'multiPlacement']) {
   $(key).addEventListener('change', () => {
     let next = { ...preferences.settings };
     for (const name of numbers) next[name] = Number(input(name).value);
     for (const name of booleans) next[name] = input(name).checked;
     next.position = $<HTMLSelectElement>('position').value as typeof next.position;
     next.monitor = $<HTMLSelectElement>('monitor').value;
+    next.displayName = input('displayName').value.trim();
+    next.multiPlacement = $<HTMLSelectElement>('multiPlacement').value as typeof next.multiPlacement;
     if (key === 'monitor') next = settingsForMonitor(next, next.monitor);
     next.layouts = { ...next.layouts, [next.monitor]: { position: next.position, x: next.customX, y: next.customY, width: next.width, height: next.height } };
     const result = settingsSchema.safeParse(next);
     if (!result.success) { message('Réglage hors limites.'); renderSettings(); return; }
+    const geometryChanged = ['width', 'height', 'position', 'monitor', 'multiPlacement', 'multiDisplay', 'maxSimultaneous'].includes(key);
+    if (geometryChanged) { queue.clear(); previews.clear(); previewing = false; void display.hide(); }
     preferences.settings = result.data; queue.configure(result.data); renderSettings();
-    const current = queue.currentId();
-    // Apply new playback settings by ending the active media; never leave old sound playing.
-    if (current || previewing) { previewing = false; void display.hide().then(() => { if (current) queue.complete(current); }); }
+    display.updateSettings(result.data);
+    if (key === 'displayName' || key === 'acceptDirect') connection?.setProfile({ name: result.data.displayName, acceptDirect: result.data.acceptDirect });
     void save().then(() => { $('saved').textContent = 'Réglages enregistrés.'; }).catch(() => { $('saved').textContent = 'Enregistrement impossible.'; });
   });
 }
@@ -201,9 +242,9 @@ async function initialize(): Promise<void> {
   queue.configure(preferences.settings);
   input('server').value = preferences.server;
   await display.initialize((id, error) => {
-    if (id !== queue.currentId() && !(previewing && id.startsWith('preview-'))) return;
-    void display.hide().then(() => {
-      if (previewing && id.startsWith('preview-')) previewing = false;
+    if (!queue.has(id) && !previews.has(id)) return;
+    void display.hide(id).then(() => {
+      if (previews.delete(id)) previewing = previews.size > 0;
       else queue.complete(id);
       if (error) message(error);
     });
@@ -216,6 +257,7 @@ async function initialize(): Promise<void> {
   }
   if (![...$<HTMLSelectElement>('monitor').options].some(option => option.value === preferences.settings.monitor)) preferences.settings.monitor = 'primary';
   renderSettings(); subscriptionUi();
+  initializeUpdates();
   if (isTauri()) {
     input('autostart').checked = await isEnabled();
     await getCurrentWindow().onCloseRequested(event => { event.preventDefault(); void getCurrentWindow().hide(); });

@@ -19,9 +19,19 @@ jobs:
         with:
           workspaces: packages/desktop/src-tauri -> target
       - run: npm ci
+      - run: npm run version:app -- --check
       - run: npm run check
       - run: npm test
+      - name: Require updater signing key
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw 'Configurez le secret TAURI_SIGNING_PRIVATE_KEY avant de publier une mise à jour.' }
       - run: npm run build:windows -- --ci
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Installer checksum
         shell: pwsh
         run: |
@@ -35,6 +45,7 @@ jobs:
           path: |
             packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
             packages/desktop/src-tauri/target/release/bundle/nsis/*.sha256
+            packages/desktop/src-tauri/target/release/bundle/nsis/*.sig
           if-no-files-found: error
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -43,10 +54,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/download-artifact@v4
         with:
           name: DropMeme-Windows-x64
           path: installers
+      - name: Generate signed update manifest
+        run: node scripts/release-manifest.mjs installers
       - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

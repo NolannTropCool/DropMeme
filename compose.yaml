@@ -14,12 +14,12 @@ services:
       - "3000"
     read_only: true
     tmpfs:
-      - /tmp:size=16m,mode=1777
+      - /tmp:size=${DROPMEME_TMP_MB:-256}m,mode=1777
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    mem_limit: 384m
+    mem_limit: ${DROPMEME_MEMORY_LIMIT:-768m}
     cpus: 1.0
     logging:
       driver: json-file

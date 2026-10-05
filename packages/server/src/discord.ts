@@ -49,6 +49,7 @@ export function createDiscordClient(): Client {
 
 export class DiscordBot implements DiscordBridge {
   private application: Application | undefined;
+  private readonly authors = new Map<string, { name: string; time: number }>();
 
   constructor(private readonly config: Config, private readonly client: Client = createDiscordClient()) {}
   connected(): boolean { return this.client.isReady(); }
@@ -98,10 +99,16 @@ export class DiscordBot implements DiscordBridge {
 
   private forward(message: Message | PartialMessage): void {
     if (!this.application || message.guildId !== this.config.guildId || !this.config.allowedChannelIds.has(message.channelId)) return;
-    // The sender's text is never sent to clients, only the media and display name.
+    // Ignore history; names are retained briefly for delayed partial embed updates.
     if (Date.now() - message.createdTimestamp > 5 * 60_000) return;
-    const author = message.member?.displayName ?? message.author?.displayName ?? 'Discord';
+    for (const [id, value] of this.authors) if (Date.now() - value.time > 5 * 60_000) this.authors.delete(id);
+    const author = message.member?.displayName ?? message.author?.displayName ?? this.authors.get(message.id)?.name ?? 'Discord';
+    if (message.author) this.authors.set(message.id, { name: author, time: Date.now() });
+    if (this.authors.size > 500) this.authors.delete(this.authors.keys().next().value!);
     for (const media of extractDiscordMedia(message)) this.application.publish(message.channelId, author, media);
+    if (message.content?.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(message.content)) {
+      this.application.publishText(message.channelId, author, message.content.slice(0, 2000), `${message.id}:text`);
+    }
   }
 
   async stop(): Promise<void> { await this.client.destroy(); }

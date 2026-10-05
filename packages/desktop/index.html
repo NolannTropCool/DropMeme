@@ -32,20 +32,33 @@
           <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
           <div><label for="width">Largeur <span class="unit">px logiques</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
           <div><label for="height">Hauteur <span class="unit">px logiques</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
-          <div><label for="durationSeconds">Durée maximale <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
+          <div><label for="gifDurationSeconds">Durée des GIF <span class="unit">secondes</span></label><input id="gifDurationSeconds" type="number" min="2" max="120" /></div>
+          <div><label for="videoDurationSeconds">Durée des vidéos <span class="unit">secondes, maximum</span></label><input id="videoDurationSeconds" type="number" min="2" max="120" /></div>
+          <div><label for="durationSeconds">Images et texte <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
           <div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div>
         </div>
         <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le petit onglet, redimensionnez le cadre, puis validez avec ✓. Une disposition par écran.</p></div>
+        <div class="toggle-row"><label for="showAuthor">Afficher l’expéditeur</label><input id="showAuthor" type="checkbox" class="switch" /></div>
+        <div class="toggle-row"><label for="multiDisplay">Plusieurs GIF en même temps<span>Les vidéos classiques restent en file d’attente.</span></label><input id="multiDisplay" type="checkbox" class="switch" /></div>
+        <div id="multi-fields" hidden class="fields-grid"><div><label for="maxSimultaneous">GIF simultanés</label><input id="maxSimultaneous" type="number" min="2" max="8" /></div><div><label for="multiPlacement">Placement des GIF</label><select id="multiPlacement"><option value="random">Aléatoire sur l’écran choisi</option><option value="zones">Mes zones</option></select></div></div>
+        <div id="zones-fields" hidden><p class="hint">Une animation par zone disponible. Le surplus attend son tour. Jusqu’à 8 zones, sur plusieurs écrans.</p><ul id="zones-list" class="item-list"></ul><button id="add-zone" class="button" type="button">Ajouter une zone</button></div>
         <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
         <div class="divider"></div>
         <div class="toggle-row"><label for="sound">Lire le son <span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>
         <div class="range-field"><label for="volume">Volume <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100" /></div>
-        <fieldset class="media-types"><legend>Accepter les médias</legend><label><input id="images" type="checkbox" /> Images & GIF</label><label><input id="videos" type="checkbox" /> Vidéos</label><label><input id="audio" type="checkbox" /> Audio</label></fieldset>
+        <fieldset class="media-types"><legend>Accepter les médias</legend><label><input id="images" type="checkbox" /> Images & GIF</label><label><input id="videos" type="checkbox" /> Vidéos</label><label><input id="audio" type="checkbox" /> Audio</label><label><input id="texts" type="checkbox" /> Texte</label></fieldset>
         <div class="divider"></div>
         <div class="toggle-row"><label for="autostart">Ouvrir avec Windows</label><input id="autostart" type="checkbox" class="switch" /></div>
         <div class="toggle-row"><label for="startMinimized">Démarrer dans la zone de notification</label><input id="startMinimized" type="checkbox" class="switch" /></div>
         <div class="button-row settings-actions"><button id="preview" class="button" type="button">Tester l’affichage</button><span id="saved" class="hint">Réglages enregistrés automatiquement.</span></div>
       </section>
+      <section class="panel social-panel" aria-labelledby="social-heading">
+        <div class="section-heading"><h2 id="social-heading">Dans le salon</h2><span class="eyebrow">03 / ENVOIS</span></div>
+        <div class="fields-grid"><div><label for="displayName">Votre pseudo dans l’application</label><input id="displayName" maxlength="64" /></div><div class="toggle-row"><label for="acceptDirect">Accepter les envois directs<span>Des abonnés de ce salon uniquement.</span></label><input id="acceptDirect" type="checkbox" class="switch" /></div></div>
+        <p id="presence-status" class="hint" role="status">Connectez-vous pour voir les abonnés en ligne.</p><ul id="peers-list" class="item-list"></ul>
+        <form id="send-form"><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select><label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea><label for="send-file">Ou un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /><p class="hint">Le texte et le fichier sont envoyés séparément. Taille maximale : 25 Mo par défaut.</p><button id="send" type="submit" class="button primary" disabled>Envoyer</button><p id="send-status" class="hint" role="status"></p></form>
+      </section>
+      <section class="panel release-panel" aria-labelledby="release-heading"><div class="section-heading"><h2 id="release-heading">DropMeme <span id="app-version"></span></h2><span class="eyebrow">04 / MISES À JOUR</span></div><div class="button-row"><button id="check-update" class="button" type="button">Rechercher une mise à jour</button><button id="install-update" class="button" type="button" hidden>Installer et redémarrer</button></div><p id="update-status" class="hint" role="status"></p><progress id="update-progress" max="100" value="0" hidden></progress><details><summary>Nouveautés et historique</summary><div id="changelog"></div></details></section>
       <footer><span id="queue-status">Aucun média en attente</span><div><button id="skip" type="button" class="text-button">Passer</button><button id="clear" type="button" class="text-button">Vider la file</button><button id="hide" type="button" class="text-button">Réduire</button></div></footer>
     </main>
     <script type="module" src="/src/main.ts"></script>

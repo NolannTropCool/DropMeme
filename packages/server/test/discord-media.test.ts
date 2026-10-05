@@ -45,7 +45,7 @@ test('real discord.js Embed objects expose their type in data, not on the instan
 test('a direct image or GIF link may be stored in thumbnail, not image', () => {
   const url = 'https://images-ext-1.discordapp.net/external/token/linked.gif';
   const embed = makeEmbed({ type: EmbedType.Image, thumbnail: { url: 'https://example.com/linked.gif', proxy_url: url } });
-  expect(extractDiscordMedia({ ...base, embeds: [embed] })).toEqual([expect.objectContaining({ url, name: 'image.jpg' })]);
+  expect(extractDiscordMedia({ ...base, embeds: [embed] })).toEqual([expect.objectContaining({ url, name: 'animation.gif' })]);
 });
 test('recognizes an extensionless GIF video even though the video getter returns a new object each time', () => {
   const url = 'https://images-ext-1.discordapp.net/external/token/animation';

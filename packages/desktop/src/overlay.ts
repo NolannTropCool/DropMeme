@@ -1,87 +1,89 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
-import { mediaEventSchema, settingsSchema } from '@dropmeme/shared';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { mediaEventSchema, settingsSchema, playbackDuration, type Settings } from '@dropmeme/shared';
 import type { DisplayPayload } from './display.js';
 import './overlay.css';
 
 const root = document.querySelector<HTMLDivElement>('#media-root')!;
-let timer: ReturnType<typeof setTimeout> | undefined;
-let loading: ReturnType<typeof setTimeout> | undefined;
-let active: HTMLVideoElement | HTMLAudioElement | undefined;
-let id: string | undefined;
-let generation = 0;
+interface Playing { container: HTMLDivElement; author: HTMLElement; player?: HTMLMediaElement; timer?: ReturnType<typeof setTimeout>; loading?: ReturnType<typeof setTimeout> }
+const playing = new Map<string, Playing>();
 
-function stop(): void {
-  generation++; clearTimeout(timer); clearTimeout(loading);
-  if (active) { active.pause(); active.removeAttribute('src'); active.load(); active = undefined; }
-  root.replaceChildren(); id = undefined;
+function stop(id?: string): void {
+  for (const [key, value] of playing) if (!id || key === id) {
+    clearTimeout(value.timer); clearTimeout(value.loading);
+    if (value.player) { value.player.pause(); value.player.removeAttribute('src'); value.player.load(); }
+    value.container.remove(); playing.delete(key);
+  }
 }
-
-function done(error?: string): void {
-  if (!id) return;
-  const finished = id; stop();
-  const payload = error ? { id: finished, error } : { id: finished };
+function done(id: string, error?: string): void {
+  if (!playing.has(id)) return;
+  stop(id); const payload = error ? { id, error } : { id };
   if (isTauri()) void emitTo('main', 'overlay-done', payload);
   else parent.postMessage({ type: 'overlay-done', ...payload }, location.origin);
 }
-
+function configure(settings: Settings): void {
+  for (const value of playing.values()) {
+    value.container.style.opacity = String(settings.opacity / 100); value.author.hidden = !settings.showAuthor;
+    if (value.player) { value.player.muted = !settings.sound; value.player.volume = settings.volume / 100; }
+  }
+}
 function play(payload: DisplayPayload): void {
-  const mediaResult = mediaEventSchema.safeParse(payload?.media);
-  const settingsResult = settingsSchema.safeParse(payload?.settings);
-  if (!mediaResult.success || !settingsResult.success) return;
-  const media = mediaResult.data;
-  const settings = settingsResult.data;
-  const url = new URL(media.url);
-  // Preview is a bundled asset. All other media are authenticated server resources.
+  const parsed = mediaEventSchema.safeParse(payload?.media); const configured = settingsSchema.safeParse(payload?.settings);
+  if (!parsed.success || !configured.success) return;
+  const media = parsed.data; const settings = configured.data; const url = new URL(media.url);
   if (!(payload.preview && url.origin === location.origin && url.pathname === '/preview.gif') && !url.pathname.startsWith('/v1/media/')) return;
   if (!['http:', 'https:', 'tauri:'].includes(url.protocol)) return;
-  stop(); id = media.id;
-  const current = generation;
-  root.style.opacity = String(settings.opacity / 100);
-  loading = setTimeout(() => done('Chargement du média trop long.'), 10_000);
+  if (!payload.box || !Object.values(payload.box).every(Number.isFinite)) return;
+  stop(media.id);
+  const container = document.createElement('div'); container.className = 'media-item'; container.dataset.mediaId = media.id;
+  Object.assign(container.style, { left: `${payload.box.x}px`, top: `${payload.box.y}px`, width: `${payload.box.width}px`, height: `${payload.box.height}px`, opacity: String(settings.opacity / 100) });
+  const author = document.createElement('div'); author.className = 'media-author'; author.textContent = `De ${media.author}`; author.hidden = !settings.showAuthor;
+  const value: Playing = { container, author }; playing.set(media.id, value);
   const loaded = () => {
-    if (current !== generation) return;
-    clearTimeout(loading);
-    timer = setTimeout(() => done(), settings.durationSeconds * 1000);
+    if (playing.get(media.id) !== value) return;
+    clearTimeout(value.loading);
+    if (!value.timer) value.timer = setTimeout(() => done(media.id), playbackDuration(media, settings) * 1000);
   };
-  if (media.kind === 'image') {
+  value.loading = setTimeout(() => done(media.id, 'Chargement du média trop long.'), media.kind === 'video' ? 60_000 : 15_000);
+  if (media.kind === 'text') {
+    const text = document.createElement('div'); text.className = 'text-tile'; text.textContent = media.text!;
+    container.append(text); loaded();
+  } else if (media.kind === 'image') {
     const image = document.createElement('img'); image.alt = media.name;
-    image.onload = loaded; image.onerror = () => { if (current === generation) done('Image non lisible.'); };
-    image.src = media.url; root.append(image);
+    image.onload = loaded; image.onerror = () => { if (playing.get(media.id) === value) done(media.id, 'Image non lisible.'); };
+    image.src = media.url; container.append(image);
   } else {
-    const element = document.createElement(media.kind === 'video' ? 'video' : 'audio');
-    active = element; element.muted = !settings.sound; element.volume = settings.volume / 100;
-    element.autoplay = true; element.preload = 'auto';
+    const element = document.createElement(media.kind === 'video' ? 'video' : 'audio'); value.player = element;
+    element.muted = !settings.sound; element.volume = settings.volume / 100; element.autoplay = true; element.preload = 'auto';
     element.loop = media.kind === 'video' && media.loop === true;
     if (element instanceof HTMLVideoElement) element.playsInline = true;
-    element.onended = () => { if (current === generation) done(); };
-    element.onerror = () => { if (current === generation) done('Format non pris en charge par cet appareil.'); };
+    element.onended = () => { if (playing.get(media.id) === value) done(media.id); };
+    element.onerror = () => { if (playing.get(media.id) === value) done(media.id, 'Format non pris en charge ou conversion échouée.'); };
     element.onloadeddata = () => {
-      if (current !== generation) return;
-      loaded();
-      void element.play().catch(() => { if (current === generation) done('Lecture automatique refusée. Vérifiez les réglages du son.'); });
+      if (playing.get(media.id) !== value) return;
+      loaded(); void element.play().catch(() => { if (playing.get(media.id) === value) done(media.id, 'Lecture automatique refusée. Vérifiez les réglages du son.'); });
     };
     element.src = media.url;
-    if (media.kind === 'audio') {
-      const tile = document.createElement('div'); tile.className = 'audio-tile';
-      const symbol = document.createElement('span'); symbol.textContent = '♪'; symbol.className = 'audio-symbol';
-      const name = document.createElement('strong'); name.textContent = media.name;
-      const author = document.createElement('span'); author.textContent = media.author;
-      tile.append(symbol, name, author, element); root.append(tile);
-    } else root.append(element);
+    if (media.kind === 'audio') { const tile = document.createElement('div'); tile.className = 'audio-tile'; tile.textContent = `♪ ${media.name}`; tile.append(element); container.append(tile); }
+    else container.append(element);
   }
+  container.append(author); root.append(container);
 }
 
 if (isTauri()) {
-  await listen<DisplayPayload>('overlay-play', event => play(event.payload));
-  await listen('overlay-stop', stop);
-  await listen('overlay-probe', () => { void emitTo('main', 'overlay-ready'); });
-  await emitTo('main', 'overlay-ready');
+  const label = getCurrentWindow().label; const target = { target: label };
+  await listen<DisplayPayload>('overlay-play', event => play(event.payload), target);
+  await listen<{ id?: string }>('overlay-stop', event => stop(event.payload?.id), target);
+  await listen<Settings>('overlay-settings', event => { const settings = settingsSchema.safeParse(event.payload); if (settings.success) configure(settings.data); }, target);
+  await listen('overlay-probe', () => { void emitTo('main', 'overlay-ready', { label }); }, target);
+  await emitTo('main', 'overlay-ready', { label });
 } else {
   window.addEventListener('message', event => {
     if (event.origin !== location.origin || event.source !== parent) return;
-    const data = event.data as { type?: string; payload?: DisplayPayload };
-    if (data?.type === 'overlay-play' && data.payload) play(data.payload);
-    if (data?.type === 'overlay-stop') stop();
+    const data = event.data as { type?: string; payload?: unknown };
+    if (data?.type === 'overlay-play') play(data.payload as DisplayPayload);
+    if (data?.type === 'overlay-stop') stop((data.payload as { id?: string } | undefined)?.id);
+    if (data?.type === 'overlay-settings') { const settings = settingsSchema.safeParse(data.payload); if (settings.success) configure(settings.data); }
   });
 }

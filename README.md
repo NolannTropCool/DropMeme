@@ -7,8 +7,10 @@ Le bot reçoit les nouveaux messages via le Gateway Discord. Il diffuse les méd
 ## Fonctionnalités
 
 - Abonnement à un salon avec un code privé généré par `/dropmeme`, ou ID du salon + clé d’invitation administrateur.
-- Images, GIF, vidéos MP4/WebM et audio MP3/OGG/WAV/M4A, selon les codecs disponibles dans WebView2. Les images de liens passant par le proxy Discord sont aussi acceptées.
-- Écran, placement libre par glisser-déposer, dimensions, opacité, durée maximale de 2 à 120 secondes, volume et son. Le son est désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
+- Images, GIF et WebP animés, vidéos MP4/WebM, MOV convertis en MP4 sur le serveur, texte et audio MP3/OGG/WAV/M4A. Les images de liens passant par le proxy Discord sont aussi acceptées.
+- Écran, placement libre par glisser-déposer, dimensions, opacité et durées séparées de 2 à 120 secondes pour GIF, vidéos, images et texte. Son désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
+- Personnes connectées au même salon, pseudo local et envois de texte ou fichiers depuis l’application. Les envois directs demandent le consentement explicite du destinataire, désactivé par défaut. Ce pseudo identifie l’appareil connecté, sans vérification d’identité Discord.
+- Plusieurs GIF simultanés en option, désactivée par défaut : placement aléatoire ou jusqu’à huit zones personnalisées sur vos écrans. Une fenêtre de rendu est partagée par écran ; les vidéos ordinaires restent dans la file.
 - File FIFO limitée, déduplication, filtres par format, pause, passage au média suivant et aperçu. La pause ignore les nouveaux médias ; elle ne les rejoue pas ensuite. Les médias en attente depuis plus de cinq minutes sont abandonnés.
 - Zone de notification, ouverture avec Windows, reconnexion automatique. Les réglages sont enregistrés localement et le jeton dans le gestionnaire d’identifiants Windows.
 - SQLite local : aucun Redis, PostgreSQL ou service de compte utilisateur à exploiter.
@@ -66,7 +68,17 @@ Pour sauvegarder SQLite, arrêtez le service avant de copier le volume `dropmeme
 
 Le workflow **Checks** construit un installeur NSIS `.exe` à chaque push sur `main` et chaque PR. Téléchargez l’artefact **DropMeme-Windows-x64** dans l’onglet Actions de GitHub. Windows 10/11 x64 est ciblé. L’installeur installe WebView2 si nécessaire ; l’application utilise le runtime partagé de Windows au lieu d’embarquer Chromium.
 
-Un tag `v0.1.0`, ou autre version cohérente avec les fichiers du projet, déclenche **Windows release** : build, tests, somme SHA-256 et création d’une **GitHub Release en brouillon** contenant l’installeur. `workflow_dispatch` génère uniquement l’artefact. Pour changer de version, mettez à jour les `package.json`, `Cargo.toml`, `tauri.conf.json` et les lockfiles avant de poser le tag. Le projet ne contient pas de certificat de signature Windows : les installeurs générés seront non signés, et SmartScreen peut demander une confirmation. Aucune mise à jour automatique n’est activée.
+Un tag `v0.2.0`, ou autre version cohérente avec les fichiers du projet, déclenche **Windows release** : build, tests, somme SHA-256, signature de mise à jour et création d’une **GitHub Release en brouillon** contenant l’installeur, sa signature et `latest.json`. `workflow_dispatch` génère uniquement l’artefact signé. Le projet ne contient pas de certificat Authenticode Windows : SmartScreen peut demander une confirmation. La signature des mises à jour Tauri vérifie leur origine dans l’application et ne remplace pas Authenticode.
+
+### Versions et mises à jour intégrées
+
+`npm run version:app -- minor` incrémente la deuxième valeur pour une évolution fonctionnelle ; `npm run version:app -- patch` incrémente la troisième pour une correction. La commande synchronise les manifests, les lockfiles et la version affichée. Ajoutez les nouveautés dans `CHANGELOG.md` et `packages/desktop/src/changelog.ts`, puis vérifiez `npm run version:app -- --check`.
+
+Avant une release, ajoutez au dépôt le secret **Actions → TAURI_SIGNING_PRIVATE_KEY** contenant le fichier de clé privée correspondant à la clé publique de `tauri.conf.json`. La clé initiale est conservée hors dépôt dans `/workspace/.cache/dropmeme-release/updater.key` ; sauvegardez-la dans votre gestionnaire de secrets. Elle n’a pas de mot de passe ; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` peut rester absent. Ne régénérez pas cette clé pour chaque version : les clients installés font confiance à la clé publique initiale. Le workflow release refuse de publier sans secret. Checks produit toujours un installateur de test sans exiger ce secret.
+
+Après configuration, posez le tag correspondant et publiez la release en brouillon pour rendre `latest.json` accessible. Dans l’application, **Rechercher une mise à jour** puis **Installer et redémarrer** télécharge le nouvel installateur, vérifie sa signature et lance l’installation. Le téléchargement est celui d’un installateur complet, pas un correctif différentiel. Le serveur Linux se met à jour séparément par redéploiement Docker.
+
+La migration de **0.1 vers 0.2** demande une première installation manuelle de l’artefact Windows, puisque 0.1 n’intègre pas l’updater. Quittez l’ancienne application depuis la zone de notification et installez 0.2 ; préférences et abonnement sont conservés. Redéployez aussi le serveur. Les clients 0.1 peuvent continuer à recevoir les médias du serveur 0.2 ; les nouvelles fonctions sociales nécessitent client et serveur 0.2.
 
 Dans l’application : saisissez l’URL HTTPS du serveur, puis votre code Discord ou l’ID du salon et la clé d’invitation. Choisissez vos réglages et utilisez « Tester l’affichage ». Fermer la fenêtre la réduit dans la zone de notification ; utilisez le menu **Quitter** pour arrêter l’application. Le mode plein écran exclusif de certains jeux peut masquer la superposition ; utilisez le plein écran sans bordure.
 
@@ -99,7 +111,7 @@ Client natif sous Windows : installez les [prérequis Tauri](https://v2.tauri.ap
 
 ```sh
 npm run dev:desktop
-npm run build:windows -- --ci
+npm run build:windows -- --ci --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
 L’installeur est généré dans `packages/desktop/src-tauri/target/release/bundle/nsis/`. L’icône source est `packages/desktop/app-icon.svg` ; régénérez les formats natifs avec `npm run tauri -w @dropmeme/desktop -- icon app-icon.svg --output src-tauri/icons`.
@@ -117,7 +129,9 @@ Les tests couvrent les invitations, leur expiration, l’authentification WebSoc
 
 ## Sécurité et limites
 
-Les IDs de salons ne sont pas des secrets. Les codes et jetons sont stockés hachés côté serveur, et les tickets de média sont signés et expirent après 30 minutes. La révocation d’un appareil coupe son WebSocket et ses nouveaux téléchargements. Les médias déjà téléchargés chez l’utilisateur ne peuvent pas être retirés à distance. Les réponses ne contiennent pas le texte des messages. Les contenus HTML/SVG et les redirections externes sont refusés ; les téléchargements utilisent TLS et sont bornés en taille et durée.
+Les IDs de salons ne sont pas des secrets. Les codes et jetons sont stockés hachés côté serveur, et les tickets de média sont signés et expirent après 30 minutes. La révocation d’un appareil coupe son WebSocket et ses nouveaux téléchargements. Les médias déjà téléchargés chez l’utilisateur ne peuvent pas être retirés à distance. Le texte est affiché comme du texte brut, sans exécuter de HTML. Les fichiers HTML/SVG et les redirections externes sont refusés ; les téléchargements utilisent TLS et sont bornés en taille et durée. Les envois sont limités à 20 par minute et par appareil connecté. Les fichiers envoyés depuis l’application restent en mémoire, avec un plafond de 64 Mo ; ils ne sont pas archivés. Les conversions MOV sont limitées à deux simultanées, 45 secondes de calcul, 120 secondes de vidéo et 1920×1080 au maximum ; FFmpeg est fourni dans l’image Docker.
+
+Le Compose réserve un maximum de **768 Mo de mémoire**, avec **256 Mo de fichiers temporaires** (comptés dans la mémoire utilisée), et un CPU. Ces plafonds sont configurables via `DROPMEME_MEMORY_LIMIT` et `DROPMEME_TMP_MB` dans `.env` ou les variables de déploiement. Si vous augmentez `MAX_MEDIA_MB` au-delà de 25, augmentez aussi l’espace temporaire et la mémoire pour les deux conversions simultanées ; les fichiers temporaires sont supprimés après conversion, même en cas d’échec.
 
 Il n’y a pas de panneau administrateur, d’OAuth Discord individuel, d’historique, de synchronisation des réglages ni de diffusion multi-salon dans cette première version. Les invitations sont des accès délégués : gardez-les privées. Toute personne possédant un code valide peut appairer un appareil, même sans compte Discord sur celui-ci.
 

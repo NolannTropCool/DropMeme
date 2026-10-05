@@ -25,11 +25,13 @@ export function extractDiscordMedia(message: MediaMessage): IncomingMedia[] {
       return new URL(url).pathname.toLowerCase().endsWith('.gif');
     }) ? thumbnail : undefined;
     const asset = gif ? video ?? image ?? animatedThumbnail : image ?? (data.type === 'image' ? thumbnail : undefined);
-    const url = [asset?.proxyURL, asset?.url].find(value => value && isDiscordMediaUrl(value));
+    // Discord's image proxy can flatten WebP/GIF previews. Prefer the original file on a trusted CDN.
+    const originalAnimation = asset?.url && isDiscordMediaUrl(asset.url) && /\.(gif|webp)$/i.test(new URL(asset.url).pathname) ? asset.url : undefined;
+    const url = [originalAnimation, asset?.proxyURL, asset?.url].find(value => value && isDiscordMediaUrl(value));
     if (!url) continue;
     const extension = new URL(url).pathname.split('.').at(-1)?.toLowerCase();
     const isVideo = gif && extension !== 'gif' && (extension === 'mp4' || extension === 'webm' || asset === video);
-    result.push({ url, name: isVideo ? `animation.${extension === 'webm' ? 'webm' : 'mp4'}` : gif ? 'animation.gif' : 'image.jpg', contentType: isVideo ? (extension === 'webm' ? 'video/webm' : 'video/mp4') : null, size: 0, sourceId: `${message.id}:embed:${index}`, ...(isVideo ? { loop: true } : {}) });
+    result.push({ url, name: isVideo ? `animation.${extension === 'webm' ? 'webm' : 'mp4'}` : extension === 'webp' ? 'animation.webp' : gif || extension === 'gif' ? 'animation.gif' : 'image.jpg', contentType: isVideo ? (extension === 'webm' ? 'video/webm' : 'video/mp4') : null, size: 0, sourceId: `${message.id}:embed:${index}`, ...(isVideo ? { loop: true } : {}) });
   }
   return result;
 }

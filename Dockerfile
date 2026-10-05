@@ -12,6 +12,7 @@ COPY packages/server ./packages/server
 RUN npm run build:shared && npm run build --workspace @dropmeme/server
 
 FROM node:24-bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=3000 DATABASE_PATH=/data/dropmeme.sqlite
 WORKDIR /app
 COPY --chown=node:node package.json package-lock.json ./

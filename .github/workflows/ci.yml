@@ -16,6 +16,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm run version:app -- --check
       - run: npm run check
       - run: npm test
       - run: npm run build
@@ -51,7 +52,7 @@ jobs:
       - run: npm run build:shared
       - run: npm run build -w @dropmeme/desktop
       - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --locked --features custom-protocol --all-targets -- -D warnings
-      - run: npm run build:windows -- --ci
+      - run: npm run build:windows -- --ci --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v4
         with:
           name: DropMeme-Windows-x64

@@ -35,12 +35,12 @@ async function pair(channelId = channelA): Promise<PairingResponse> {
   return response.json() as PairingResponse;
 }
 
-async function open(token: string): Promise<{ socket: WebSocket; events: ServerEvent[] }> {
+async function open(token: string, profile?: { name: string; acceptDirect: boolean }): Promise<{ socket: WebSocket; events: ServerEvent[] }> {
   const socket = new WebSocket(config.publicUrl.replace('http:', 'ws:') + '/v1/events'); sockets.push(socket);
   const events: ServerEvent[] = [];
   await new Promise<void>((resolve, reject) => {
     socket.once('error', reject);
-    socket.once('open', () => socket.send(JSON.stringify({ type: 'authenticate', token })));
+    socket.once('open', () => socket.send(JSON.stringify({ type: 'authenticate', token, ...(profile ? { protocol: 2, version: '0.2.0', profile } : {}) })));
     socket.on('message', bytes => { const event = JSON.parse(bytes.toString()) as ServerEvent; events.push(event); if (event.type === 'ready') resolve(); });
     socket.once('close', () => reject(new Error('Socket closed before ready')));
   });
@@ -55,6 +55,76 @@ async function nextMedia(token: string): Promise<MediaEvent> {
 }
 
 describe('HTTP and real WebSocket integration', () => {
+  test('presence and consent isolate direct text and its resource from other devices', async () => {
+    const sender = await pair(); const recipient = await pair(); const other = await pair(channelB);
+    const a = await open(sender.token, { name: 'Alice', acceptDirect: false });
+    const b = await open(recipient.token, { name: 'Bob', acceptDirect: false });
+    const c = await open(other.token, { name: 'Charlie', acceptDirect: true });
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'presence').at(-1)).toMatchObject({ peers: [{ name: 'Alice' }, { name: 'Bob', acceptDirect: false }] }));
+    expect(c.events.filter(event => event.type === 'presence').at(-1)).toMatchObject({ peers: [{ name: 'Charlie' }] });
+    const post = () => application.app.inject({ method: 'POST', url: '/v2/send/text', headers: { authorization: `Bearer ${sender.token}` }, payload: { text: '<img onerror=alert(1)>', recipientId: recipient.deviceId } });
+    expect((await post()).statusCode).toBe(403);
+    b.socket.send(JSON.stringify({ type: 'profile', profile: { name: 'Bob', acceptDirect: true } }));
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'presence').at(-1)).toMatchObject({ peers: [{ name: 'Alice' }, { name: 'Bob', acceptDirect: true }] }));
+    expect((await post()).statusCode).toBe(201);
+    await vi.waitFor(() => expect(b.events.filter(event => event.type === 'media')).toHaveLength(1));
+    expect(a.events.filter(event => event.type === 'media')).toHaveLength(0);
+    expect(c.events.filter(event => event.type === 'media')).toHaveLength(0);
+    const media = b.events.find(event => event.type === 'media') as MediaEvent;
+    expect(media).toMatchObject({ kind: 'text', author: 'Alice', text: '<img onerror=alert(1)>' });
+    const url = new URL(media.url);
+    expect((await application.app.inject(url.pathname + url.search)).body).toBe('<img onerror=alert(1)>');
+    // Even a valid ticket for a different same-channel device cannot access a targeted resource.
+    url.searchParams.set('device', sender.deviceId);
+    url.searchParams.set('ticket', (await import('node:crypto')).createHmac('sha256', application.store.signingKey).update(`${media.id}:${sender.deviceId}:${url.searchParams.get('expires')}`).digest('base64url'));
+    expect((await application.app.inject(url.pathname + url.search)).statusCode).toBe(404);
+    const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    const uploaded = await application.app.inject({ method: 'POST', url: `/v2/send/file?recipientId=${recipient.deviceId}`, headers: { authorization: `Bearer ${sender.token}`, 'content-type': 'multipart/form-data; boundary=target' }, payload: Buffer.concat([Buffer.from('--target\r\nContent-Disposition: form-data; name="file"; filename="one.gif"\r\nContent-Type: image/gif\r\n\r\n'), gif, Buffer.from('\r\n--target--\r\n')]) });
+    expect(uploaded.statusCode).toBe(201);
+    await vi.waitFor(() => expect(b.events.filter(event => event.type === 'media')).toHaveLength(2));
+    expect(b.events.filter(event => event.type === 'media').at(-1)).toMatchObject({ kind: 'image', animation: true, name: 'one.gif', author: 'Alice' });
+    expect(a.events.filter(event => event.type === 'media')).toHaveLength(0);
+    expect(c.events.filter(event => event.type === 'media')).toHaveLength(0);
+    b.socket.send(JSON.stringify({ type: 'profile', profile: { name: 'Bob', acceptDirect: false } }));
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'presence').at(-1)).toMatchObject({ peers: [{ name: 'Alice' }, { name: 'Bob', acceptDirect: false }] }));
+    expect((await post()).statusCode).toBe(403);
+    expect((await application.app.inject({ method: 'POST', url: '/v2/send/text', headers: { authorization: `Bearer ${sender.token}` }, payload: { text: 'cross channel', recipientId: other.deviceId } })).statusCode).toBe(403);
+  });
+
+  test('uploads retain animated WebP bytes, reject HTML and enforce size and connected authentication', async () => {
+    const sender = await pair(); const client = await open(sender.token, { name: 'Alice', acceptDirect: false });
+    const upload = (bytes: Buffer, name = 'animation.webp') => application.app.inject({
+      method: 'POST', url: '/v2/send/file', headers: { authorization: `Bearer ${sender.token}`, 'content-type': 'multipart/form-data; boundary=dropmeme' },
+      payload: Buffer.concat([Buffer.from(`--dropmeme\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: image/webp\r\n\r\n`), bytes, Buffer.from('\r\n--dropmeme--\r\n')]),
+    });
+    const webp = Buffer.from('RIFF0123WEBPVP8X0000ANIM0000ANMF0000');
+    expect((await upload(webp)).statusCode).toBe(201);
+    await vi.waitFor(() => expect(client.events.filter(event => event.type === 'media')).toHaveLength(1));
+    const media = client.events.find(event => event.type === 'media') as MediaEvent;
+    expect(media).toMatchObject({ kind: 'image', animation: true, author: 'Alice' });
+    const url = new URL(media.url); const response = await application.app.inject(url.pathname + url.search);
+    expect(response.headers['content-type']).toBe('image/webp'); expect(response.rawPayload).toEqual(webp);
+    expect(fetchMedia).not.toHaveBeenCalled();
+    expect((await upload(Buffer.from('<html>not an image</html>'), 'fake.gif')).statusCode).toBe(415);
+    expect((await upload(Buffer.alloc(101))).statusCode).toBe(413);
+    expect((await application.app.inject({ method: 'POST', url: '/v2/send/text', payload: { text: 'anonymous' } })).statusCode).toBe(401);
+    expect((await application.app.inject({ method: 'POST', url: '/v2/send/text', headers: { authorization: `Bearer ${sender.token}` }, payload: { text: 'é'.repeat(2000) } })).statusCode).toBe(201);
+  });
+
+  test('broadcast text reaches new clients only; send limits survive reconnects', async () => {
+    const sender = await pair(); const newer = await open(sender.token, { name: 'Alice', acceptDirect: true });
+    const legacy = await open((await pair()).token);
+    const sendText = () => application.app.inject({ method: 'POST', url: '/v2/send/text', headers: { authorization: `Bearer ${sender.token}` }, payload: { text: 'Bonjour' } });
+    expect((await sendText()).statusCode).toBe(201);
+    await vi.waitFor(() => expect(newer.events.filter(event => event.type === 'media')).toHaveLength(1));
+    expect(legacy.events.filter(event => event.type === 'presence' || event.type === 'media')).toHaveLength(0);
+    for (let i = 1; i < 20; i++) expect((await sendText()).statusCode).toBe(201);
+    expect((await sendText()).statusCode).toBe(429);
+    const closed = new Promise<void>(resolve => newer.socket.once('close', () => resolve())); newer.socket.close(); await closed;
+    await vi.waitFor(async () => expect((await sendText()).statusCode).toBe(401));
+    await open(sender.token, { name: 'Alice', acceptDirect: false });
+    expect((await sendText()).statusCode).toBe(429);
+  });
   test('Tenor GIF picker media is proxied as looping video, not as a thumbnail or an external player', async () => {
     const device = await pair(); const { socket } = await open(device.token);
     const arrival = new Promise<MediaEvent>(resolve => socket.once('message', data => resolve(JSON.parse(data.toString()) as MediaEvent)));
