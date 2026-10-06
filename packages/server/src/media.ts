@@ -69,7 +69,7 @@ export class MediaCatalog {
     if (!text.trim() || text.length > 2000) return undefined;
     const id = sourceId ? createHash('sha256').update(`${channelId}:${sourceId}`).digest('hex') : randomUUID();
     if (this.entries.has(id)) return undefined;
-    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind: 'text', text, name: 'Message', contentType: 'text/plain', size: Buffer.byteLength(text), url: `text:${id}`, createdAt: Date.now(), ...(targetDeviceId ? { targetDeviceId } : {}) };
+    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind: 'text', text, name: 'Message', contentType: 'text/plain', size: Buffer.byteLength(text), url: `text:${id}`, createdAt: Date.now(), ...(targetDeviceId ? { targetDeviceId } : {}), ...(sourceId ? { sourceId } : {}) };
     this.insert(media); return media;
   }
 
@@ -80,6 +80,13 @@ export class MediaCatalog {
       if (this.entries.size <= 500 && bytes <= 64 * 1024 * 1024) break;
       bytes -= value.bytes?.length ?? 0; this.entries.delete(id);
     }
+  }
+
+  /** Forgets every media of a deleted Discord message: its tickets stop resolving. */
+  retract(channelId: string, messageId: string): string[] {
+    const ids = [...this.entries.values()].filter(media => media.channelId === channelId && media.sourceId?.startsWith(`${messageId}:`)).map(media => media.id);
+    for (const id of ids) this.entries.delete(id);
+    return ids;
   }
 
   get(id: string, now = Date.now()): StoredMedia | undefined {

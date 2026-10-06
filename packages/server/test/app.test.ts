@@ -143,6 +143,22 @@ describe('HTTP and real WebSocket integration', () => {
     expect(fetchMedia.mock.calls[0]?.[0]).toBe(url);
     expect(fetchMedia.mock.calls[0]?.[1]?.redirect).toBe('error');
   });
+  test('a deleted Discord message is retracted from its channel and its media tickets stop resolving', async () => {
+    const viewer = await open((await pair()).token, { name: 'Bob', acceptDirect: false });
+    const other = await open((await pair(channelB)).token, { name: 'Eve', acceptDirect: false });
+    application.publish(channelA, 'Alice', { ...image, sourceId: 'm1:a' });
+    application.publishText(channelA, 'Alice', 'Oups', 'm1:text');
+    application.publish(channelA, 'Alice', { ...image, sourceId: 'm2:a' });
+    await vi.waitFor(() => expect(viewer.events.filter(event => event.type === 'media')).toHaveLength(3));
+    const [first, text, kept] = viewer.events.filter((event): event is MediaEvent => event.type === 'media');
+    application.retract(channelB, ['m1']);
+    application.retract(channelA, ['m1', 'unknown']);
+    await vi.waitFor(() => expect(viewer.events.at(-1)).toEqual({ type: 'retract', ids: [first!.id, text!.id] }));
+    expect(other.events.some(event => event.type === 'retract')).toBe(false);
+    const status = async (media: MediaEvent) => { const url = new URL(media.url); return (await application.app.inject(url.pathname + url.search)).statusCode; };
+    expect(await status(first!)).toBe(404);
+    expect(await status(kept!)).toBe(200);
+  });
   test('pairing requires an allowed channel and secret or a valid one-use code', async () => {
     expect((await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { channelId: channelA } })).statusCode).toBe(400);
     expect((await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { channelId: channelA, joinKey: 'wrong-key-at-least-24-chars' } })).statusCode).toBe(401);

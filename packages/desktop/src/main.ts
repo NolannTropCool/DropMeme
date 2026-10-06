@@ -60,6 +60,7 @@ function startConnection(token: string): void {
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
     else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
+    else if (event.type === 'retract') for (const id of queue.retract(event.ids)) void display.hide(id).then(() => queue.complete(id));
     else if (event.type === 'presence') social.setPeers(event.peers);
     else if (event.type === 'error') message(event.message);
   }, state => {

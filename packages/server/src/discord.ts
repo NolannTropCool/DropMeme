@@ -70,6 +70,8 @@ export class DiscordBot implements DiscordBridge {
     this.client.on(Events.ShardResume, () => application.publishStatus());
     this.client.on(Events.ClientReady, () => application.publishStatus());
     this.client.on(Events.MessageCreate, message => this.forward(message));
+    this.client.on(Events.MessageDelete, message => this.retract(message.guildId, message.channelId, [message.id]));
+    this.client.on(Events.MessageBulkDelete, (messages, channel) => this.retract(channel.guildId, channel.id, [...messages.keys()]));
     // With no history cache, delayed embeds arrive as PartialMessage objects. Do not fetch history.
     this.client.on(Events.MessageUpdate, (_before, message) => this.forward(message));
     this.client.on(Events.InteractionCreate, async interaction => {
@@ -111,6 +113,11 @@ export class DiscordBot implements DiscordBridge {
     if (!spoiler && message.content?.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(message.content)) {
       this.application.publishText(message.channelId, author, message.content.slice(0, 2000), `${message.id}:text`);
     }
+  }
+
+  private retract(guildId: string | null, channelId: string, messageIds: string[]): void {
+    if (!this.application || guildId !== this.config.guildId || !this.config.allowedChannelIds.has(channelId)) return;
+    this.application.retract(channelId, messageIds);
   }
 
   async stop(): Promise<void> { await this.client.destroy(); }

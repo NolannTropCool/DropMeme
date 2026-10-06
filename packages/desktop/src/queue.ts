@@ -32,6 +32,15 @@ export class MediaQueue {
     this.next();
   }
 
+  /** Drops deleted media for good. Returns those on screen: hide them, then complete(). */
+  retract(ids: readonly string[]): string[] {
+    for (const id of ids) this.seen.add(id);
+    while (this.seen.size > 1000) this.seen.delete(this.seen.values().next().value!);
+    this.pending = this.pending.filter(media => !ids.includes(media.id));
+    this.notify();
+    return ids.filter(id => this.active.has(id));
+  }
+
   clear(): void { this.pending = []; this.active.clear(); this.notify(); }
   reset(): void { this.clear(); this.seen.clear(); }
   setPaused(value: boolean): void { this.paused = value; if (value) this.clear(); else this.next(); }

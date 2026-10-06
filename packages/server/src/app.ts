@@ -21,6 +21,7 @@ export interface Application {
   publish(channelId: string, author: string, input: IncomingMedia): boolean;
   publishStatus(): void;
   publishText(channelId: string, author: string, text: string, sourceId?: string): boolean;
+  retract(channelId: string, messageIds: string[]): void;
 }
 const origins = new Set(['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost', 'http://localhost:1420']);
 const authenticateSchema = z.object({ type: z.literal('authenticate'), token: z.string().min(32).max(128), profile: profileSchema.optional(), protocol: z.number().int().min(1).max(2).optional(), version: z.string().max(32).optional() }).strict();
@@ -307,6 +308,12 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
       const media = catalog.addText(channelId, author, text, undefined, sourceId);
       if (!media) return false;
       dispatch(media); return true;
+    },
+    retract(channelId, messageIds) {
+      const ids = messageIds.flatMap(id => catalog.retract(channelId, id));
+      if (!ids.length) return;
+      for (const id of ids) { const cached = cache.get(id); if (cached) { cacheBytes -= cached.bytes.length; cache.delete(id); } }
+      for (const [socket, device] of peers) if (device.channelId === channelId && device.protocol >= 2) send(socket, { type: 'retract', ids });
     },
     publishStatus() { for (const socket of peers.keys()) send(socket, { type: 'status', discordConnected: discord.connected() }); },
   };

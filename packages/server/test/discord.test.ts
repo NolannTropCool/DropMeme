@@ -114,5 +114,10 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
     Object.defineProperty(late, 'id', { value: spoilerLink.id });
     client.emit(Events.MessageUpdate, spoilerLink, late);
     expect(publish).toHaveBeenCalledTimes(2);
+    const retract = vi.spyOn(application, 'retract');
+    client.emit(Events.MessageDelete, makeMessage(client, guildId, channelId));
+    client.emit(Events.MessageDelete, makeMessage(client, guildId, appId));
+    expect(retract).toHaveBeenCalledOnce();
+    expect(retract).toHaveBeenCalledWith(channelId, [expect.any(String)]);
   } finally { await bot.stop(); await application.app.close(); }
 });

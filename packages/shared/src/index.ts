@@ -66,6 +66,8 @@ export type MediaEvent = z.infer<typeof mediaEventSchema>;
 
 export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
+  // No protocol bump: 0.2 clients drop unknown events, while a 0.2 server rejects protocol 3 logins.
+  z.object({ type: z.literal('retract'), ids: z.array(z.string().min(1).max(100)).min(1).max(2000) }),
   z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
