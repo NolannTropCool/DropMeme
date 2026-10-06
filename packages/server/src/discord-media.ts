@@ -5,16 +5,23 @@ export interface MediaMessage {
   id: string;
   attachments: { values(): IterableIterator<{ id: string; url: string; name: string; contentType: string | null; size: number }> };
   embeds: readonly Pick<Embed, 'data' | 'image' | 'video' | 'thumbnail'>[];
+  content?: string | null;
 }
 
+/** Discord spoiler markup: `||hidden||`. */
+export const hasSpoiler = (content: string | null | undefined): boolean => /\|\|[\s\S]+?\|\|/.test(content ?? '');
+
 /** Discord unfurls GIF picker links asynchronously. Accept files, never execute external players. */
-export function extractDiscordMedia(message: MediaMessage): IncomingMedia[] {
+export function extractDiscordMedia(message: MediaMessage, spoiler = hasSpoiler(message.content)): IncomingMedia[] {
   const result: IncomingMedia[] = [];
   for (const attachment of message.attachments.values()) {
     if (result.length >= 10) break;
+    // Discord marks spoiler files by name only.
+    if (attachment.name.startsWith('SPOILER_')) continue;
     result.push({ url: attachment.url, name: attachment.name, contentType: attachment.contentType, size: attachment.size, sourceId: `${message.id}:${attachment.id}` });
   }
-  for (const [index, embed] of message.embeds.entries()) {
+  // Embeds are not linked to the URL that produced them: one spoilered link hides every unfurl.
+  for (const [index, embed] of spoiler ? [] : message.embeds.entries()) {
     if (result.length >= 10) break;
     // Embed has no `type` getter. Read the raw API data, and capture asset getters once:
     // each getter returns a fresh object, so comparing against a second embed.video read fails.
