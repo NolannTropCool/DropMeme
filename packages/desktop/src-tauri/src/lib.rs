@@ -89,8 +89,9 @@ async fn create_overlay(window: WebviewWindow, label: Option<String>) -> Result<
 }
 
 #[cfg(target_os = "windows")]
-fn credential() -> Result<keyring::Entry, String> {
-    keyring::Entry::new("com.dropmeme.desktop", "device")
+fn credential(window: &WebviewWindow) -> Result<keyring::Entry, String> {
+    // Keyed by identifier so the dev build never touches the installed app's token.
+    keyring::Entry::new(&window.config().identifier, "device")
         .map_err(|_| "Le gestionnaire d’identifiants Windows est inaccessible.".into())
 }
 
@@ -99,7 +100,7 @@ fn load_token(window: WebviewWindow) -> Result<Option<String>, String> {
     require_main(&window)?;
     #[cfg(target_os = "windows")]
     {
-        match credential()?.get_password() {
+        match credential(&window)?.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(_) => Err("Lecture sécurisée des identifiants impossible.".into()),
@@ -124,7 +125,7 @@ fn save_token(window: WebviewWindow, token: String) -> Result<(), String> {
     }
     #[cfg(target_os = "windows")]
     {
-        credential()?
+        credential(&window)?
             .set_password(&token)
             .map_err(|_| "Enregistrement sécurisé impossible.".into())
     }
@@ -144,7 +145,7 @@ fn clear_token(window: WebviewWindow) -> Result<(), String> {
     require_main(&window)?;
     #[cfg(target_os = "windows")]
     {
-        match credential()?.delete_credential() {
+        match credential(&window)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(_) => Err("Suppression sécurisée impossible.".into()),
         }
@@ -190,9 +191,13 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "Ouvrir DropMeme", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
+            let name = app.package_info().name.clone();
+            if let Some(main) = app.get_webview_window("main") {
+                main.set_title(&name)?;
+            }
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("DropMeme")
+                .tooltip(&name)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => show_main(app),

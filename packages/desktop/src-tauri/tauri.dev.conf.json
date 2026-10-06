@@ -1,0 +1,5 @@
+{
+  "productName": "DropMeme Dev",
+  "identifier": "com.dropmeme.desktop.dev",
+  "bundle": { "createUpdaterArtifacts": false }
+}

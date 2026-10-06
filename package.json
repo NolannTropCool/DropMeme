@@ -12,7 +12,7 @@
     "check": "npm run build:shared && npm run check --workspaces --if-present",
     "test": "npm run build:shared && vitest run",
     "dev:server": "npm run build:shared && npm run dev -w @dropmeme/server",
-    "dev:desktop": "npm run build:shared && npm run tauri -w @dropmeme/desktop -- dev",
+    "dev:desktop": "npm run build:shared && npm run tauri -w @dropmeme/desktop -- dev --config src-tauri/tauri.dev.conf.json",
     "build:windows": "npm run build:shared && npm run tauri -w @dropmeme/desktop -- build --bundles nsis",
     "test:e2e": "npm run build:shared && playwright test"
   },
