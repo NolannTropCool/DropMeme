@@ -1,7 +1,8 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -161,6 +162,31 @@ fn clear_token(window: WebviewWindow) -> Result<(), String> {
     }
 }
 
+fn tray_menu<R: Runtime>(app: &AppHandle<R>, update: Option<&str>) -> tauri::Result<Menu<R>> {
+    let open = MenuItem::with_id(app, "open", "Ouvrir DropMeme", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    if let Some(version) = update {
+        let label = format!("Mettre à jour vers {version}");
+        menu.prepend(&MenuItem::with_id(app, "update", label, true, None::<&str>)?)?;
+    }
+    Ok(menu)
+}
+
+#[tauri::command]
+fn announce_update(window: WebviewWindow, version: String) -> Result<(), String> {
+    require_main(&window)?;
+    let valid = version.chars().all(|c| c.is_ascii_alphanumeric() || ".-+".contains(c));
+    if version.is_empty() || version.len() > 32 || !valid {
+        return Err("Version invalide.".into());
+    }
+    let app = window.app_handle();
+    let tray = app.tray_by_id("main").ok_or("Zone de notification indisponible.")?;
+    tray_menu(app, Some(&version))
+        .and_then(|menu| tray.set_menu(Some(menu)))
+        .map_err(|_| "Mise à jour du menu impossible.".into())
+}
+
 fn show_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -185,22 +211,25 @@ pub fn run() {
             save_token,
             clear_token,
             create_overlay,
-            create_placement
+            create_placement,
+            announce_update
         ])
         .setup(|app| {
-            let open = MenuItem::with_id(app, "open", "Ouvrir DropMeme", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let menu = tray_menu(app.handle(), None)?;
             let name = app.package_info().name.clone();
             if let Some(main) = app.get_webview_window("main") {
                 main.set_title(&name)?;
             }
-            let mut tray = TrayIconBuilder::new()
+            let mut tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .tooltip(&name)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => show_main(app),
+                    "update" => {
+                        show_main(app);
+                        let _ = app.emit_to("main", "tray-update", ());
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
