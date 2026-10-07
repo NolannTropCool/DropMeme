@@ -1,4 +1,5 @@
-import { emitTo, listen } from '@tauri-apps/api/event';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { emitTo } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { cursorPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/api/window';
 import { register, unregister, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
@@ -24,8 +25,9 @@ export class QuickSend {
     // A reloaded main webview would otherwise find its own previous binding already taken.
     await unregisterAll();
     this.window = await WebviewWindow.getByLabel('quick-send');
-    await listen<unknown>('quick-send-request', event => { void this.relay(event.payload); }, { target: 'main' });
-    await listen('quick-send-ready', () => this.push('quick-send-state'), { target: 'main' });
+    // Requests arrive only through Rust, which checks they come from the quick-send webview.
+    const relay = new Channel<unknown>(); relay.onmessage = payload => { void this.relay(payload); };
+    await invoke('quick_send_listen', { channel: relay });
   }
 
   setOnline(online: boolean): void { this.online = online; this.push('quick-send-state'); }

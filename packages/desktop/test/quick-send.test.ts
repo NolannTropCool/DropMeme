@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { defaultSettings, settingsSchema } from '@dropmeme/shared';
 
 const mocks = vi.hoisted(() => ({
-  emitTo: vi.fn(), listen: vi.fn(), readToken: vi.fn(), sendText: vi.fn(),
-  handlers: new Map<string, (event: { payload: unknown }) => void>(),
+  emitTo: vi.fn(), invoke: vi.fn(), readToken: vi.fn(), sendText: vi.fn(),
+  channel: undefined as { onmessage: (payload: unknown) => void } | undefined,
 }));
-vi.mock('@tauri-apps/api/event', () => ({ emitTo: mocks.emitTo, listen: mocks.listen }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, Channel: class { onmessage = (_payload: unknown) => {}; constructor() { mocks.channel = this; } } }));
+vi.mock('@tauri-apps/api/event', () => ({ emitTo: mocks.emitTo }));
 vi.mock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: { getByLabel: vi.fn(async () => ({})) } }));
 vi.mock('@tauri-apps/plugin-global-shortcut', () => ({ register: vi.fn(), unregister: vi.fn(), unregisterAll: vi.fn() }));
 vi.mock('../src/preferences.js', () => ({ readToken: mocks.readToken }));
@@ -17,19 +18,22 @@ const preferences = { settings: defaultSettings, server: 'https://dropmeme.examp
 async function relay(online: boolean): Promise<(payload: unknown) => Promise<unknown>> {
   const quickSend = new QuickSend(() => preferences); await quickSend.initialize(); quickSend.setOnline(online);
   return async payload => {
-    mocks.emitTo.mockClear(); mocks.handlers.get('quick-send-request')!({ payload });
+    mocks.emitTo.mockClear(); mocks.channel!.onmessage(payload);
     await new Promise(resolve => setTimeout(resolve, 0));
     return mocks.emitTo.mock.calls.find(call => call[1] === 'quick-send-result')?.[2];
   };
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.handlers.clear();
-  mocks.listen.mockImplementation(async (event: string, handler: (event: { payload: unknown }) => void) => { mocks.handlers.set(event, handler); return () => {}; });
+  vi.clearAllMocks(); mocks.channel = undefined;
   mocks.emitTo.mockResolvedValue(undefined); mocks.readToken.mockResolvedValue('t'.repeat(43)); mocks.sendText.mockResolvedValue(undefined);
 });
 
 describe('quick-send relay in the main window', () => {
+  test('listens only on the Rust channel, never on a forgeable webview event', async () => {
+    await relay(true);
+    expect(mocks.invoke).toHaveBeenCalledWith('quick_send_listen', { channel: mocks.channel });
+  });
   test('sends validated text to the whole channel with the main token and answers the request id', async () => {
     const send = await relay(true);
     expect(await send({ id, kind: 'text', text: '  gg  ' })).toEqual({ id, ok: true });

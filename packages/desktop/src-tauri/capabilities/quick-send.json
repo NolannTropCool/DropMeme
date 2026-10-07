@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quick-send",
-  "description": "Quick-send launcher asks the main window to send and hides itself; no credential, file or store access.",
+  "description": "Quick-send launcher listens to the main window and hides itself; its requests go through the quick_send command, never through emitted events. No credential, file, store or event-emitting access.",
   "windows": ["quick-send"],
-  "permissions": ["core:event:default", "core:window:allow-hide"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-hide"]
 }

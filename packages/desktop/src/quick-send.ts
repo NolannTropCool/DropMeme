@@ -1,5 +1,5 @@
-import { isTauri } from '@tauri-apps/api/core';
-import { emitTo, listen } from '@tauri-apps/api/event';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { QuickSendRequest } from '@dropmeme/shared';
 import type { QuickSendResult, QuickSendState } from './quick-send-host.js';
@@ -27,7 +27,7 @@ const hide = () => { void getCurrentWindow().hide(); };
 function request(body: Omit<QuickSendRequest, 'id'>): void {
   if (pending || !state.online) return;
   pending = crypto.randomUUID(); error = ''; render();
-  void emitTo('main', 'quick-send-request', { ...body, id: pending }).catch(() => { pending = undefined; error = 'DropMeme ne répond pas.'; render(); });
+  void invoke('quick_send', { request: { ...body, id: pending } }).catch(() => { pending = undefined; error = 'DropMeme ne répond pas.'; render(); });
 }
 
 $<HTMLFormElement>('quick-form').onsubmit = event => {
@@ -47,6 +47,5 @@ if (isTauri()) {
     if (event.payload.ok) { query.value = ''; hide(); } else error = event.payload.error;
     render();
   }, target);
-  await emitTo('main', 'quick-send-ready');
 }
 render();

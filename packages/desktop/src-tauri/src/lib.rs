@@ -1,13 +1,19 @@
+use std::sync::Mutex;
 use tauri::{
+    ipc::Channel,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Default)]
-struct SessionToken(std::sync::Mutex<Option<String>>);
+struct SessionToken(Mutex<Option<String>>);
+
+/// Main's end of the quick-send relay.
+#[derive(Default)]
+struct QuickSendRelay(Mutex<Option<Channel<serde_json::Value>>>);
 
 fn require_main(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "main" {
@@ -15,6 +21,41 @@ fn require_main(window: &WebviewWindow) -> Result<(), String> {
     } else {
         Err("Cette fenêtre n’a pas accès aux identifiants.".into())
     }
+}
+
+fn require_quick_send(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "quick-send" {
+        Ok(())
+    } else {
+        Err("Cette fenêtre ne peut pas envoyer.".into())
+    }
+}
+
+#[tauri::command]
+fn quick_send_listen(
+    window: WebviewWindow,
+    channel: Channel<serde_json::Value>,
+    relay: State<'_, QuickSendRelay>,
+) -> Result<(), String> {
+    require_main(&window)?;
+    *relay.0.lock().map_err(|_| "Relais indisponible.")? = Some(channel);
+    Ok(())
+}
+
+// Events carry no sender, so any webview could forge one. A channel only reaches main, and only quick-send may feed it.
+#[tauri::command]
+fn quick_send(
+    window: WebviewWindow,
+    request: serde_json::Value,
+    relay: State<'_, QuickSendRelay>,
+) -> Result<(), String> {
+    require_quick_send(&window)?;
+    let relay = relay.0.lock().map_err(|_| "Relais indisponible.")?;
+    relay
+        .as_ref()
+        .ok_or("DropMeme ne répond pas.")?
+        .send(request)
+        .map_err(|_| "DropMeme ne répond pas.".into())
 }
 
 // WebView2 deadlocks when a webview is built from a synchronous IPC command.
@@ -200,6 +241,7 @@ pub fn run() {
     #[cfg(not(target_os = "windows"))]
     let builder = builder.manage(SessionToken::default());
     builder
+        .manage(QuickSendRelay::default())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
@@ -213,7 +255,9 @@ pub fn run() {
             clear_token,
             create_overlay,
             create_placement,
-            announce_update
+            announce_update,
+            quick_send_listen,
+            quick_send
         ])
         .setup(|app| {
             let menu = tray_menu(app.handle(), None)?;
