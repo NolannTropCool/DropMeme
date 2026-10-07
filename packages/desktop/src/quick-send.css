@@ -2,7 +2,8 @@
 * { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
 .launcher { display: flex; flex-direction: column; gap: 10px; height: 100%; padding: 14px; border: 1px solid #39493d; border-radius: 10px; background: #141615; user-select: none; }
-#query { width: 100%; font: inherit; font-size: 18px; color: #f2f3ef; background: #1b1e1c; border: 1px solid #373d38; border-radius: 7px; padding: 12px 14px; outline: none; }
+#quick-form { display: flex; gap: 8px; }
+#query { flex: 1; min-width: 0; font: inherit; font-size: 18px; color: #f2f3ef; background: #1b1e1c; border: 1px solid #373d38; border-radius: 7px; padding: 12px 14px; outline: none; }
 #query:focus { border-color: #b2d9ba; }
 #query:disabled { opacity: .5; }
 p { margin: 0; font-size: 12px; color: #a3aaa4; }
@@ -13,6 +14,14 @@ p:empty { display: none; }
 #results li:hover { border-color: #475249; }
 #results li[aria-selected=true] { border-color: #b2d9ba; }
 #results img, #results video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.browse { flex-shrink: 0; font: inherit; font-size: 13px; color: #e8e8e6; background: #1b1e1c; border: 1px solid #373d38; border-radius: 7px; padding: 0 14px; cursor: pointer; }
+.browse:hover:not(:disabled), .browse:focus-visible { border-color: #b2d9ba; outline: none; }
+.browse:disabled { opacity: .5; cursor: default; }
+.file-preview { flex: 1; min-height: 0; display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px dashed #475249; border-radius: 8px; }
+.file-preview[hidden] { display: none; }
+.file-preview strong { display: block; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.file-thumb { flex-shrink: 0; width: 180px; height: 100%; max-height: 180px; display: grid; place-items: center; border-radius: 6px; background: #1b1e1c; overflow: hidden; }
+.file-thumb img, .file-thumb video { max-width: 100%; max-height: 100%; object-fit: contain; }
 .more { align-self: center; font: inherit; font-size: 12px; color: #a3aaa4; background: transparent; border: 1px solid #373d38; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
 .more:hover { color: #b2d9ba; }
 footer { margin-top: auto; font-size: 11px; color: #7e8b81; }

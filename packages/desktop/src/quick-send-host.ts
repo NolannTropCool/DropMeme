@@ -6,9 +6,11 @@ import { register, unregister, unregisterAll } from '@tauri-apps/plugin-global-s
 import { quickSendRequestSchema, type GifSearchResponse } from '@dropmeme/shared';
 import { applyWindowGeometry } from './monitors.js';
 import { readToken, type Preferences } from './preferences.js';
-import { searchGifs, sendGif, sendText } from './send.js';
+import { defaultMaxMediaBytes, fileError } from './picker.js';
+import { searchGifs, sendFile, sendGif, sendText } from './send.js';
 
-export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean }
+export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean; maxMediaBytes: number }
+type ServerFeatures = { gifSearch?: boolean | undefined; maxMediaBytes?: number | undefined };
 export type QuickSendResult = { id: string; ok: true; gifs?: GifSearchResponse } | { id: string; ok: false; error: string };
 // Logical size, same as the quick-send window in tauri.conf.json.
 const size = { width: 640, height: 440 };
@@ -16,7 +18,7 @@ const size = { width: 640, height: 440 };
 /** Main-window side of the launcher. The quick-send webview never reads the token: it asks main to send or search. */
 export class QuickSend {
   private online = false;
-  private gifSearch = false;
+  private features: ServerFeatures = {};
   private search: AbortController | undefined;
   private shortcut: string | undefined;
   private window: WebviewWindow | null = null;
@@ -32,8 +34,9 @@ export class QuickSend {
     await invoke('quick_send_listen', { channel: relay });
   }
 
-  /** `gifSearch` comes from the server's ready event; a 0.2 server omits it. */
-  setOnline(online: boolean, gifSearch = false): void { this.online = online; this.gifSearch = online && gifSearch; this.push('quick-send-state'); }
+  /** Features come from the server's ready event; a 0.2 server omits them. */
+  setOnline(online: boolean, features: ServerFeatures = {}): void { this.online = online; this.features = online ? features : {}; this.push('quick-send-state'); }
+  private get maxMediaBytes(): number { return this.features.maxMediaBytes ?? defaultMaxMediaBytes; }
 
   /** Registers the new shortcut before releasing the old one, so a refused change keeps the previous binding. */
   async bindShortcut(accelerator: string): Promise<void> {
@@ -48,7 +51,7 @@ export class QuickSend {
 
   private push(event: 'quick-send-state' | 'quick-send-open'): void {
     if (!this.window) return;
-    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: this.gifSearch };
+    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: !!this.features.gifSearch, maxMediaBytes: this.maxMediaBytes };
     void emitTo('quick-send', event, state).catch(() => {});
   }
 
@@ -76,13 +79,21 @@ export class QuickSend {
     const search = data.kind === 'search' ? (this.search?.abort(), this.search = new AbortController()) : undefined;
     let result: QuickSendResult = { id, ok: true };
     try {
+      // Claim the staged bytes first so Rust frees them even when this send fails.
+      const file = data.kind === 'file' ? new File([await invoke<ArrayBuffer>('take_file', { id })], data.name, { type: data.type }) : undefined;
+      const invalid = file && fileError(file, this.maxMediaBytes);
+      if (invalid) throw new Error(invalid);
       const token = this.online ? await readToken() : undefined;
       if (!token) throw new Error('DropMeme n’est pas connecté au salon.');
       const { server } = this.preferences();
       if (data.kind === 'text') await sendText(server, token, data.text);
       else if (data.kind === 'gif') await sendGif(server, token, data.gif);
-      else result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
-    } catch (error) { result = { id, ok: false, error: error instanceof Error ? error.message : 'Envoi impossible.' }; }
+      else if (data.kind === 'search') result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
+      else await sendFile(server, token, file!);
+    } catch (error) {
+      // Rust commands reject with a plain string.
+      result = { id, ok: false, error: error instanceof Error ? error.message : typeof error === 'string' ? error : 'Envoi impossible.' };
+    }
     if (search && search !== this.search) return;
     await emitTo('quick-send', 'quick-send-result', result).catch(() => {});
   }

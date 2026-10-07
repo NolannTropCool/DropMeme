@@ -69,7 +69,7 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
   // No protocol bump: 0.2 clients drop unknown events, while a 0.2 server rejects protocol 3 logins.
   z.object({ type: z.literal('retract'), ids: z.array(z.string().min(1).max(100)).min(1).max(2000) }),
-  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), gifSearch: z.boolean().optional() }),
+  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), gifSearch: z.boolean().optional(), maxMediaBytes: z.number().int().positive().optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
   z.object({ type: z.literal('error'), message: z.string() }),
@@ -85,6 +85,8 @@ export const quickSendRequestSchema = z.discriminatedUnion('kind', [
   z.object({ id: quickSendId, kind: z.literal('text'), text: textRequestSchema.shape.text }).strict(),
   z.object({ id: quickSendId, kind: z.literal('search'), q: gifSearchRequestSchema.shape.q, page: z.number().int().min(1).max(20) }).strict(),
   z.object({ id: quickSendId, kind: z.literal('gif'), gif: gifId }).strict(),
+  // The bytes are staged in Rust under the same id; only the metadata travels here.
+  z.object({ id: quickSendId, kind: z.literal('file'), name: z.string().min(1).max(256), type: z.string().max(100) }).strict(),
 ]);
 export type QuickSendRequest = z.infer<typeof quickSendRequestSchema>;
 const httpsUrl = z.url({ protocol: /^https$/ });

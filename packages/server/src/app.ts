@@ -274,7 +274,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
         if ([...peers.values()].some(peer => peer.id === device.id)) { socket.close(4009, 'Appareil déjà connecté'); return; }
         clearTimeout(timeout);
         peers.set(socket, { ...device, profile: parsed.success && parsed.data.profile ? parsed.data.profile : { name: `Appareil ${device.id.slice(0, 6)}`, acceptDirect: false }, protocol: parsed.success ? parsed.data.protocol ?? 1 : 1, version: parsed.success ? parsed.data.version ?? '0.1' : '0.1' });
-        send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, gifSearch: !!config.gifApiKey });
+        send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, gifSearch: !!config.gifApiKey, maxMediaBytes: config.maxMediaBytes });
         publishPresence(device.channelId);
       } catch { socket.close(1008, 'Message invalide'); }
     });

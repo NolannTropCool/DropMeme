@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { defaultSettings, settingsSchema } from '@dropmeme/shared';
 
 const mocks = vi.hoisted(() => ({
-  emitTo: vi.fn(), invoke: vi.fn(), readToken: vi.fn(), sendText: vi.fn(), sendGif: vi.fn(), searchGifs: vi.fn(),
+  emitTo: vi.fn(), invoke: vi.fn(), readToken: vi.fn(), sendText: vi.fn(), sendGif: vi.fn(), searchGifs: vi.fn(), sendFile: vi.fn(),
   channel: undefined as { onmessage: (payload: unknown) => void } | undefined,
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, Channel: class { onmessage = (_payload: unknown) => {}; constructor() { mocks.channel = this; } } }));
@@ -10,7 +10,7 @@ vi.mock('@tauri-apps/api/event', () => ({ emitTo: mocks.emitTo }));
 vi.mock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: { getByLabel: vi.fn(async () => ({})) } }));
 vi.mock('@tauri-apps/plugin-global-shortcut', () => ({ register: vi.fn(), unregister: vi.fn(), unregisterAll: vi.fn() }));
 vi.mock('../src/preferences.js', () => ({ readToken: mocks.readToken }));
-vi.mock('../src/send.js', () => ({ sendText: mocks.sendText, sendGif: mocks.sendGif, searchGifs: mocks.searchGifs }));
+vi.mock('../src/send.js', () => ({ sendText: mocks.sendText, sendGif: mocks.sendGif, searchGifs: mocks.searchGifs, sendFile: mocks.sendFile }));
 import { QuickSend, shortcutFromKeyboard, shortcutLabel } from '../src/quick-send-host.js';
 
 const id = '0b6f3f9e-2d4c-4f53-9a51-6f4f0c3b8a10';
@@ -29,7 +29,7 @@ async function relay(online: boolean): Promise<(payload: unknown) => Promise<unk
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.channel = undefined;
+  vi.clearAllMocks(); mocks.invoke.mockReset(); mocks.channel = undefined;
   mocks.emitTo.mockResolvedValue(undefined); mocks.readToken.mockResolvedValue('t'.repeat(43)); mocks.sendText.mockResolvedValue(undefined);
 });
 
@@ -48,10 +48,31 @@ describe('quick-send relay in the main window', () => {
     for (const payload of [null, 'gg', { id, kind: 'text', text: '   ' }, { id, kind: 'text', text: 'x'.repeat(2001) }, { id: 'not-a-uuid', kind: 'text', text: 'gg' },
       { id, kind: 'text', text: 'gg', recipientId: id }, { id, kind: 'text', text: 'gg', token: 'x' }, { id, kind: 'file', text: 'gg' },
       { id, kind: 'search', q: ' a ', page: 1 }, { id, kind: 'search', q: 'x'.repeat(101), page: 1 }, { id, kind: 'search', q: 'chat', page: 21 }, { id, kind: 'search', q: 'chat', page: '1' }, { id, kind: 'search', q: 'chat' },
-      { id, kind: 'gif', gif: '../items' }, { id, kind: 'gif', gif: 'cat', url: 'https://evil.example/x.gif' }, { id, kind: 'gif', gif: 'cat', recipientId: id }]) {
+      { id, kind: 'gif', gif: '../items' }, { id, kind: 'gif', gif: 'cat', url: 'https://evil.example/x.gif' }, { id, kind: 'gif', gif: 'cat', recipientId: id },
+      { id, kind: 'file', name: '', type: 'image/png' }, { id, kind: 'file', name: 'x'.repeat(257), type: 'image/png' }, { id, kind: 'file', name: 'a.png' },
+      { id, kind: 'file', name: 'a.png', type: 'image/png', bytes: [1] }, { id, kind: 'file', name: 'a.png', type: 'image/png', recipientId: id }]) {
       expect(await send(payload)).toBeUndefined();
     }
     expect(mocks.sendText).not.toHaveBeenCalled(); expect(mocks.sendGif).not.toHaveBeenCalled(); expect(mocks.searchGifs).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('take_file', expect.anything()); expect(mocks.sendFile).not.toHaveBeenCalled();
+  });
+  test('sends a staged file claimed from Rust, re-validated with the announced limit', async () => {
+    const quickSend = new QuickSend(() => preferences); await quickSend.initialize(); quickSend.setOnline(true, { maxMediaBytes: 6 });
+    const send = async (payload: unknown) => { mocks.emitTo.mockClear(); mocks.channel!.onmessage(payload); await tick(); return results()[0]; };
+    mocks.invoke.mockImplementation(async (command: string) => command === 'take_file' ? new Uint8Array([137, 80, 78, 71]).buffer : undefined);
+    mocks.sendFile.mockResolvedValue(undefined);
+    expect(await send({ id, kind: 'file', name: 'capture-2026-10-07.png', type: 'image/png' })).toEqual({ id, ok: true });
+    expect(mocks.invoke).toHaveBeenCalledWith('take_file', { id });
+    const file = mocks.sendFile.mock.calls[0]![2] as File;
+    expect([file.name, file.type, file.size]).toEqual(['capture-2026-10-07.png', 'image/png', 4]);
+    expect(mocks.sendFile.mock.calls[0]!.slice(0, 2)).toEqual(['https://dropmeme.example.com', 't'.repeat(43)]);
+    // Claimed then refused: Rust has already freed the bytes.
+    expect(await send({ id, kind: 'file', name: 'page.svg', type: 'image/svg+xml' })).toEqual({ id, ok: false, error: 'Format refusé. Utilisez une image, un GIF, WebP, MP4, WebM ou MOV.' });
+    mocks.invoke.mockImplementation(async (command: string) => command === 'take_file' ? new Uint8Array(7).buffer : undefined);
+    expect(await send({ id, kind: 'file', name: 'a.png', type: 'image/png' })).toMatchObject({ ok: false, error: expect.stringContaining('trop volumineux') });
+    mocks.invoke.mockRejectedValue('Le fichier n’est plus disponible. Déposez-le à nouveau.');
+    expect(await send({ id, kind: 'file', name: 'a.png', type: 'image/png' })).toEqual({ id, ok: false, error: 'Le fichier n’est plus disponible. Déposez-le à nouveau.' });
+    expect(mocks.sendFile).toHaveBeenCalledTimes(1);
   });
   test('searches and sends Klipy GIFs to the whole channel with the main token', async () => {
     const send = await relay(true);
@@ -73,12 +94,12 @@ describe('quick-send relay in the main window', () => {
     expect(results()).toEqual([{ id: later, ok: true, gifs }]);
     expect((mocks.searchGifs.mock.calls[0]![4] as AbortSignal).aborted).toBe(true);
   });
-  test('announces GIF search only while online on a server that offers it', async () => {
+  test('announces GIF search and the upload limit of the server, with 0.2 defaults', async () => {
     const quickSend = new QuickSend(() => preferences); await quickSend.initialize();
     const state = () => mocks.emitTo.mock.calls.filter(call => call[1] === 'quick-send-state').at(-1)?.[2];
-    quickSend.setOnline(true, true); expect(state()).toEqual({ online: true, channelName: 'memes', gifSearch: true });
-    quickSend.setOnline(true); expect(state()).toMatchObject({ gifSearch: false });
-    quickSend.setOnline(false, true); expect(state()).toMatchObject({ online: false, gifSearch: false });
+    quickSend.setOnline(true, { gifSearch: true, maxMediaBytes: 50 }); expect(state()).toEqual({ online: true, channelName: 'memes', gifSearch: true, maxMediaBytes: 50 });
+    quickSend.setOnline(true, {}); expect(state()).toMatchObject({ gifSearch: false, maxMediaBytes: 25 * 1024 * 1024 });
+    quickSend.setOnline(false, { gifSearch: true, maxMediaBytes: 50 }); expect(state()).toMatchObject({ online: false, gifSearch: false, maxMediaBytes: 25 * 1024 * 1024 });
   });
   test('reports offline state and server refusals to the quick-send window', async () => {
     expect(await (await relay(false))({ id, kind: 'text', text: 'gg' })).toEqual({ id, ok: false, error: 'DropMeme n’est pas connecté au salon.' });

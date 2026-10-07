@@ -1,5 +1,29 @@
 import { describe, expect, test } from 'vitest';
-import { gridMove } from '../src/picker.js';
+import { defaultMaxMediaBytes, fileError, formatSize, gridMove } from '../src/picker.js';
+
+describe('quick-send file validation', () => {
+  const file = (name: string, type: string, size = 1000) => ({ name, type, size });
+  test('accepts the formats of /v2/send/file, by type or by extension when Windows reports none', () => {
+    for (const [name, type] of [['a.png', 'image/png'], ['a.JPG', 'image/jpeg'], ['a.gif', 'image/gif'], ['a.webp', 'image/webp'], ['a.avif', 'image/avif'],
+      ['a.mp4', 'video/mp4'], ['a.webm', 'video/webm'], ['a.mov', 'video/quicktime'], ['clip.mov', ''], ['clip.mp4', 'application/octet-stream'], ['capture', 'image/png']] as const) {
+      expect(fileError(file(name, type), defaultMaxMediaBytes)).toBeUndefined();
+    }
+  });
+  test('refuses HTML, SVG, audio and unknown files with the server message', () => {
+    for (const [name, type] of [['a.html', 'text/html'], ['a.svg', 'image/svg+xml'], ['a.mp3', 'audio/mpeg'], ['a.txt', 'text/plain'], ['a', ''], ['a.exe', 'application/x-msdownload']]) {
+      expect(fileError(file(name, type), defaultMaxMediaBytes)).toBe('Format refusé. Utilisez une image, un GIF, WebP, MP4, WebM ou MOV.');
+    }
+  });
+  test('enforces the announced size limit, 25 MB before a server announces one', () => {
+    expect(defaultMaxMediaBytes).toBe(25 * 1024 * 1024);
+    expect(fileError(file('a.png', 'image/png', defaultMaxMediaBytes), defaultMaxMediaBytes)).toBeUndefined();
+    expect(fileError(file('a.png', 'image/png', defaultMaxMediaBytes + 1), defaultMaxMediaBytes)).toBe('Fichier trop volumineux : 25 Mo maximum.');
+    expect(fileError(file('a.png', 'image/png', 2000), 1500)).toBe('Fichier trop volumineux : 1 Ko maximum.');
+    expect(fileError(file('a.png', 'image/png', 0), defaultMaxMediaBytes)).toBe('Ce fichier est vide.');
+    expect(formatSize(1536 * 1024)).toBe('1,5 Mo');
+    expect(formatSize(10)).toBe('1 Ko');
+  });
+});
 
 describe('GIF grid keyboard navigation', () => {
   // 12 tiles in 5 columns: rows 0-4, 5-9 and a partial last row 10-11.

@@ -2,6 +2,25 @@ import type { GifResult } from '@dropmeme/shared';
 
 export type GridItem = Pick<GifResult, 'id' | 'previewUrl'>;
 
+// Same formats as /v2/send/file, which sniffs the bytes anyway: HTML, SVG and the rest are refused.
+export const accepted: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+};
+export const acceptedTypes = [...new Set(Object.values(accepted))];
+/** Before a 0.3 server announces its limit in ready. */
+export const defaultMaxMediaBytes = 25 * 1024 * 1024;
+export const formatSize = (bytes: number): string =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} Ko` : `${(bytes / 1024 / 1024).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`;
+
+/** French reason the server would refuse this file, or undefined. Windows may report no or a generic type: the extension decides then. */
+export function fileError(file: Pick<File, 'name' | 'type' | 'size'>, maxBytes: number): string | undefined {
+  if (!acceptedTypes.includes(file.type) && !accepted[file.name.split('.').at(-1)!.toLowerCase()]) return 'Format refusé. Utilisez une image, un GIF, WebP, MP4, WebM ou MOV.';
+  if (!file.size) return 'Ce fichier est vide.';
+  if (file.size > maxBytes) return `Fichier trop volumineux : ${formatSize(maxBytes)} maximum.`;
+  return undefined;
+}
+
 /** One tile per item, in the given order (Klipy attribution forbids reordering). Favorites will reuse it. */
 export function renderGrid(list: HTMLElement, items: GridItem[], pick: (index: number, keepOpen: boolean) => void): void {
   list.replaceChildren(...items.map((item, i) => {
