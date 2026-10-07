@@ -69,21 +69,26 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
   // No protocol bump: 0.2 clients drop unknown events, while a 0.2 server rejects protocol 3 logins.
   z.object({ type: z.literal('retract'), ids: z.array(z.string().min(1).max(100)).min(1).max(2000) }),
-  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), gifSearch: z.boolean().optional() }),
+  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), gifSearch: z.boolean().optional(), maxMediaBytes: z.number().int().positive().optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 export const textRequestSchema = z.object({ text: z.string().trim().min(1).max(2000), recipientId: z.string().uuid().optional() }).strict();
-/** Quick-send webview to main webview. Always the whole channel. GIF, file and favorite kinds join this union. */
-export const quickSendRequestSchema = z.discriminatedUnion('kind', [
-  z.object({ id: z.string().uuid(), kind: z.literal('text'), text: textRequestSchema.shape.text }).strict(),
-]);
-export type QuickSendRequest = z.infer<typeof quickSendRequestSchema>;
 export const gifId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const gifSearchRequestSchema = z.object({ q: z.string().trim().min(2).max(100), page: z.coerce.number().int().min(1).max(20).default(1) });
 export const gifRequestSchema = z.object({ id: gifId, recipientId: z.string().uuid().optional() }).strict();
+const quickSendId = z.string().uuid();
+/** Quick-send webview to main webview, relayed by Rust. Always the whole channel. Favorite kinds join this union. */
+export const quickSendRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ id: quickSendId, kind: z.literal('text'), text: textRequestSchema.shape.text }).strict(),
+  z.object({ id: quickSendId, kind: z.literal('search'), q: gifSearchRequestSchema.shape.q, page: z.number().int().min(1).max(20) }).strict(),
+  z.object({ id: quickSendId, kind: z.literal('gif'), gif: gifId }).strict(),
+  // The bytes are staged in Rust under the same id; only the metadata travels here.
+  z.object({ id: quickSendId, kind: z.literal('file'), name: z.string().min(1).max(256), type: z.string().max(100) }).strict(),
+]);
+export type QuickSendRequest = z.infer<typeof quickSendRequestSchema>;
 const httpsUrl = z.url({ protocol: /^https$/ });
 export const gifResultSchema = z.object({ id: gifId, previewUrl: httpsUrl, url: httpsUrl, width: z.number().int().positive(), height: z.number().int().positive() });
 export type GifResult = z.infer<typeof gifResultSchema>;

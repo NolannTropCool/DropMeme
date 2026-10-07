@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { EmbedType } from 'discord.js';
 import { makeEmbed } from './discord-fixtures.js';
-import { gifSearchResponseSchema, type MediaEvent, type PairingResponse, type ServerEvent } from '@dropmeme/shared';
+import { gifSearchResponseSchema, serverEventSchema, type MediaEvent, type PairingResponse, type ServerEvent } from '@dropmeme/shared';
 import { createApplication, type Application } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { extractDiscordMedia } from '../src/discord-media.js';
@@ -207,6 +207,12 @@ describe('HTTP and real WebSocket integration', () => {
     expect((await application.app.inject({ url: '/v2/gifs/search?q=chat', headers: { authorization } })).statusCode).toBe(503);
     expect((await application.app.inject({ method: 'POST', url: '/v2/send/gif', headers: { authorization }, payload: { id: 'dancing-cat' } })).statusCode).toBe(503);
     expect(fetchGifs).not.toHaveBeenCalled();
+  });
+
+  test('ready announces the upload limit so clients refuse oversized files before uploading', async () => {
+    const { events } = await open((await pair()).token, { name: 'Alice', acceptDirect: false });
+    const ready = serverEventSchema.parse(events.find(event => event.type === 'ready'));
+    expect(ready).toMatchObject({ type: 'ready', protocol: 2, maxMediaBytes: config.maxMediaBytes });
   });
 
   test('sent GIFs are re-resolved by slug, reach the sender channel only and share the send quota', async () => {

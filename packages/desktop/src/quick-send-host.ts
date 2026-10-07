@@ -1,20 +1,25 @@
-import { emitTo, listen } from '@tauri-apps/api/event';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { emitTo } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { cursorPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/api/window';
 import { register, unregister, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
-import { quickSendRequestSchema } from '@dropmeme/shared';
+import { quickSendRequestSchema, type GifSearchResponse } from '@dropmeme/shared';
 import { applyWindowGeometry } from './monitors.js';
 import { readToken, type Preferences } from './preferences.js';
-import { sendText } from './send.js';
+import { defaultMaxMediaBytes, fileError } from './picker.js';
+import { searchGifs, sendFile, sendGif, sendText } from './send.js';
 
-export interface QuickSendState { online: boolean; channelName?: string | undefined }
-export type QuickSendResult = { id: string; ok: true } | { id: string; ok: false; error: string };
+export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean; maxMediaBytes: number }
+type ServerFeatures = { gifSearch?: boolean | undefined; maxMediaBytes?: number | undefined };
+export type QuickSendResult = { id: string; ok: true; gifs?: GifSearchResponse } | { id: string; ok: false; error: string };
 // Logical size, same as the quick-send window in tauri.conf.json.
-const size = { width: 640, height: 360 };
+const size = { width: 640, height: 440 };
 
-/** Main-window side of the launcher. The quick-send webview never reads the token: it asks main to send. */
+/** Main-window side of the launcher. The quick-send webview never reads the token: it asks main to send or search. */
 export class QuickSend {
   private online = false;
+  private features: ServerFeatures = {};
+  private search: AbortController | undefined;
   private shortcut: string | undefined;
   private window: WebviewWindow | null = null;
 
@@ -24,11 +29,14 @@ export class QuickSend {
     // A reloaded main webview would otherwise find its own previous binding already taken.
     await unregisterAll();
     this.window = await WebviewWindow.getByLabel('quick-send');
-    await listen<unknown>('quick-send-request', event => { void this.relay(event.payload); }, { target: 'main' });
-    await listen('quick-send-ready', () => this.push('quick-send-state'), { target: 'main' });
+    // Requests arrive only through Rust, which checks they come from the quick-send webview.
+    const relay = new Channel<unknown>(); relay.onmessage = payload => { void this.relay(payload); };
+    await invoke('quick_send_listen', { channel: relay });
   }
 
-  setOnline(online: boolean): void { this.online = online; this.push('quick-send-state'); }
+  /** Features come from the server's ready event; a 0.2 server omits them. */
+  setOnline(online: boolean, features: ServerFeatures = {}): void { this.online = online; this.features = online ? features : {}; this.push('quick-send-state'); }
+  private get maxMediaBytes(): number { return this.features.maxMediaBytes ?? defaultMaxMediaBytes; }
 
   /** Registers the new shortcut before releasing the old one, so a refused change keeps the previous binding. */
   async bindShortcut(accelerator: string): Promise<void> {
@@ -43,7 +51,7 @@ export class QuickSend {
 
   private push(event: 'quick-send-state' | 'quick-send-open'): void {
     if (!this.window) return;
-    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName };
+    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: !!this.features.gifSearch, maxMediaBytes: this.maxMediaBytes };
     void emitTo('quick-send', event, state).catch(() => {});
   }
 
@@ -66,13 +74,27 @@ export class QuickSend {
   private async relay(payload: unknown): Promise<void> {
     const request = quickSendRequestSchema.safeParse(payload);
     if (!request.success) return;
-    const { id, text } = request.data;
+    const data = request.data; const { id } = data;
+    // A newer search supersedes the previous one: its late answer would overwrite fresher results.
+    const search = data.kind === 'search' ? (this.search?.abort(), this.search = new AbortController()) : undefined;
     let result: QuickSendResult = { id, ok: true };
     try {
+      // Claim the staged bytes first so Rust frees them even when this send fails.
+      const file = data.kind === 'file' ? new File([await invoke<ArrayBuffer>('take_file', { id })], data.name, { type: data.type }) : undefined;
+      const invalid = file && fileError(file, this.maxMediaBytes);
+      if (invalid) throw new Error(invalid);
       const token = this.online ? await readToken() : undefined;
       if (!token) throw new Error('DropMeme n’est pas connecté au salon.');
-      await sendText(this.preferences().server, token, text);
-    } catch (error) { result = { id, ok: false, error: error instanceof Error ? error.message : 'Envoi impossible.' }; }
+      const { server } = this.preferences();
+      if (data.kind === 'text') await sendText(server, token, data.text);
+      else if (data.kind === 'gif') await sendGif(server, token, data.gif);
+      else if (data.kind === 'search') result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
+      else await sendFile(server, token, file!);
+    } catch (error) {
+      // Rust commands reject with a plain string.
+      result = { id, ok: false, error: error instanceof Error ? error.message : typeof error === 'string' ? error : 'Envoi impossible.' };
+    }
+    if (search && search !== this.search) return;
     await emitTo('quick-send', 'quick-send-result', result).catch(() => {});
   }
 }

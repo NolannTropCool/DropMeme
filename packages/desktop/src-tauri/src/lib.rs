@@ -1,19 +1,114 @@
+use std::{sync::Mutex, time::Duration};
 use tauri::{
+    ipc::{Channel, InvokeBody, Request, Response},
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Default)]
-struct SessionToken(std::sync::Mutex<Option<String>>);
+struct SessionToken(Mutex<Option<String>>);
+
+/// Main's end of the quick-send relay.
+#[derive(Default)]
+struct QuickSendRelay(Mutex<Option<Channel<serde_json::Value>>>);
+
+/// A quick-send file waiting for main, keyed by its request id. One slot: a new file replaces the previous one.
+#[derive(Default)]
+struct StagedFile(Mutex<Option<(String, Vec<u8>)>>);
+const STAGED_MAX: usize = 64 * 1024 * 1024;
+const STAGED_TTL: Duration = Duration::from_secs(120);
 
 fn require_main(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "main" {
         Ok(())
     } else {
         Err("Cette fenêtre n’a pas accès aux identifiants.".into())
+    }
+}
+
+fn require_quick_send(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "quick-send" {
+        Ok(())
+    } else {
+        Err("Cette fenêtre ne peut pas envoyer.".into())
+    }
+}
+
+#[tauri::command]
+fn quick_send_listen(
+    window: WebviewWindow,
+    channel: Channel<serde_json::Value>,
+    relay: State<'_, QuickSendRelay>,
+) -> Result<(), String> {
+    require_main(&window)?;
+    *relay.0.lock().map_err(|_| "Relais indisponible.")? = Some(channel);
+    Ok(())
+}
+
+// Events carry no sender, so any webview could forge one. A channel only reaches main, and only quick-send may feed it.
+#[tauri::command]
+fn quick_send(
+    window: WebviewWindow,
+    request: serde_json::Value,
+    relay: State<'_, QuickSendRelay>,
+) -> Result<(), String> {
+    require_quick_send(&window)?;
+    let relay = relay.0.lock().map_err(|_| "Relais indisponible.")?;
+    relay
+        .as_ref()
+        .ok_or("DropMeme ne répond pas.")?
+        .send(request)
+        .map_err(|_| "DropMeme ne répond pas.".into())
+}
+
+// Raw IPC body: a 25 MB file serialized as a JSON event would be several times larger.
+#[tauri::command]
+fn stage_file(
+    window: WebviewWindow,
+    request: Request<'_>,
+    staged: State<'_, StagedFile>,
+) -> Result<(), String> {
+    require_quick_send(&window)?;
+    let id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|id| id.to_str().ok())
+        .filter(|id| id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+        .ok_or("Fichier invalide.")?
+        .to_owned();
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Fichier invalide.".into());
+    };
+    if bytes.len() > STAGED_MAX {
+        return Err("Fichier trop volumineux (64 Mo maximum).".into());
+    }
+    *staged.0.lock().map_err(|_| "Fichier indisponible.")? = Some((id.clone(), bytes.clone()));
+    // Main normally claims it within milliseconds; never keep an unclaimed file in memory.
+    let app = window.app_handle().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(STAGED_TTL);
+        if let Ok(mut slot) = app.state::<StagedFile>().0.lock() {
+            if slot.as_ref().is_some_and(|(staged, _)| *staged == id) {
+                *slot = None;
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn take_file(
+    window: WebviewWindow,
+    id: String,
+    staged: State<'_, StagedFile>,
+) -> Result<Response, String> {
+    require_main(&window)?;
+    match staged.0.lock().map_err(|_| "Fichier indisponible.")?.take() {
+        Some((staged, bytes)) if staged == id => Ok(Response::new(bytes)),
+        _ => Err("Le fichier n’est plus disponible. Déposez-le à nouveau.".into()),
     }
 }
 
@@ -200,6 +295,8 @@ pub fn run() {
     #[cfg(not(target_os = "windows"))]
     let builder = builder.manage(SessionToken::default());
     builder
+        .manage(QuickSendRelay::default())
+        .manage(StagedFile::default())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
@@ -213,7 +310,11 @@ pub fn run() {
             clear_token,
             create_overlay,
             create_placement,
-            announce_update
+            announce_update,
+            quick_send_listen,
+            quick_send,
+            stage_file,
+            take_file
         ])
         .setup(|app| {
             let menu = tray_menu(app.handle(), None)?;
@@ -252,16 +353,15 @@ pub fn run() {
             tray.build(app)?;
             Ok(())
         })
-        .on_window_event(|window, event| match (window.label(), event) {
+        .on_window_event(|window, event| {
             // Both stay alive hidden: main relays quick-send requests, quick-send must open instantly.
-            ("main" | "quick-send", WindowEvent::CloseRequested { api, .. }) => {
+            // Quick-send hides itself on focus loss, sparing its file dialog and drags from other windows.
+            if let ("main" | "quick-send", WindowEvent::CloseRequested { api, .. }) =
+                (window.label(), event)
+            {
                 api.prevent_close();
                 let _ = window.hide();
             }
-            ("quick-send", WindowEvent::Focused(false)) => {
-                let _ = window.hide();
-            }
-            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("Impossible de démarrer DropMeme");
