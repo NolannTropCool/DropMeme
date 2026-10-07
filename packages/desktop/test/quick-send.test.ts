@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { defaultSettings, settingsSchema } from '@dropmeme/shared';
 
 const mocks = vi.hoisted(() => ({
-  emitTo: vi.fn(), invoke: vi.fn(), readToken: vi.fn(), sendText: vi.fn(),
+  emitTo: vi.fn(), invoke: vi.fn(), readToken: vi.fn(), sendText: vi.fn(), sendGif: vi.fn(), searchGifs: vi.fn(),
   channel: undefined as { onmessage: (payload: unknown) => void } | undefined,
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke, Channel: class { onmessage = (_payload: unknown) => {}; constructor() { mocks.channel = this; } } }));
@@ -10,17 +10,21 @@ vi.mock('@tauri-apps/api/event', () => ({ emitTo: mocks.emitTo }));
 vi.mock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: { getByLabel: vi.fn(async () => ({})) } }));
 vi.mock('@tauri-apps/plugin-global-shortcut', () => ({ register: vi.fn(), unregister: vi.fn(), unregisterAll: vi.fn() }));
 vi.mock('../src/preferences.js', () => ({ readToken: mocks.readToken }));
-vi.mock('../src/send.js', () => ({ sendText: mocks.sendText }));
+vi.mock('../src/send.js', () => ({ sendText: mocks.sendText, sendGif: mocks.sendGif, searchGifs: mocks.searchGifs }));
 import { QuickSend, shortcutFromKeyboard, shortcutLabel } from '../src/quick-send-host.js';
 
 const id = '0b6f3f9e-2d4c-4f53-9a51-6f4f0c3b8a10';
+const later = '1c7a4a0f-3e5d-4a64-8b62-7a5a1d4c9b21';
+const gifs = { results: [{ id: 'dancing-cat', previewUrl: 'https://static.klipy.com/a.webp', url: 'https://static.klipy.com/a.mp4', width: 320, height: 240 }], hasNext: true };
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const results = () => mocks.emitTo.mock.calls.filter(call => call[1] === 'quick-send-result').map(call => call[2]);
 const preferences = { settings: defaultSettings, server: 'https://dropmeme.example.com', subscription: { deviceId: 'device', channelId: '123456789012345678', channelName: 'memes' } };
 async function relay(online: boolean): Promise<(payload: unknown) => Promise<unknown>> {
   const quickSend = new QuickSend(() => preferences); await quickSend.initialize(); quickSend.setOnline(online);
   return async payload => {
     mocks.emitTo.mockClear(); mocks.channel!.onmessage(payload);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    return mocks.emitTo.mock.calls.find(call => call[1] === 'quick-send-result')?.[2];
+    await tick();
+    return results()[0];
   };
 }
 
@@ -42,10 +46,39 @@ describe('quick-send relay in the main window', () => {
   test('drops payloads outside the schema without sending', async () => {
     const send = await relay(true);
     for (const payload of [null, 'gg', { id, kind: 'text', text: '   ' }, { id, kind: 'text', text: 'x'.repeat(2001) }, { id: 'not-a-uuid', kind: 'text', text: 'gg' },
-      { id, kind: 'text', text: 'gg', recipientId: id }, { id, kind: 'text', text: 'gg', token: 'x' }, { id, kind: 'file', text: 'gg' }]) {
+      { id, kind: 'text', text: 'gg', recipientId: id }, { id, kind: 'text', text: 'gg', token: 'x' }, { id, kind: 'file', text: 'gg' },
+      { id, kind: 'search', q: ' a ', page: 1 }, { id, kind: 'search', q: 'x'.repeat(101), page: 1 }, { id, kind: 'search', q: 'chat', page: 21 }, { id, kind: 'search', q: 'chat', page: '1' }, { id, kind: 'search', q: 'chat' },
+      { id, kind: 'gif', gif: '../items' }, { id, kind: 'gif', gif: 'cat', url: 'https://evil.example/x.gif' }, { id, kind: 'gif', gif: 'cat', recipientId: id }]) {
       expect(await send(payload)).toBeUndefined();
     }
-    expect(mocks.sendText).not.toHaveBeenCalled();
+    expect(mocks.sendText).not.toHaveBeenCalled(); expect(mocks.sendGif).not.toHaveBeenCalled(); expect(mocks.searchGifs).not.toHaveBeenCalled();
+  });
+  test('searches and sends Klipy GIFs to the whole channel with the main token', async () => {
+    const send = await relay(true);
+    mocks.searchGifs.mockResolvedValue(gifs); mocks.sendGif.mockResolvedValue(undefined);
+    expect(await send({ id, kind: 'search', q: ' chat ', page: 2 })).toEqual({ id, ok: true, gifs });
+    expect(mocks.searchGifs).toHaveBeenCalledWith('https://dropmeme.example.com', 't'.repeat(43), 'chat', 2, expect.any(AbortSignal));
+    expect(await send({ id, kind: 'gif', gif: 'dancing-cat' })).toEqual({ id, ok: true });
+    expect(mocks.sendGif).toHaveBeenCalledWith('https://dropmeme.example.com', 't'.repeat(43), 'dancing-cat');
+    mocks.searchGifs.mockRejectedValue(new Error('Limite de 60 recherches par minute atteinte.'));
+    expect(await send({ id, kind: 'search', q: 'chat', page: 1 })).toEqual({ id, ok: false, error: 'Limite de 60 recherches par minute atteinte.' });
+  });
+  test('a newer search aborts the previous one, whose late answer is never relayed', async () => {
+    await relay(true);
+    const first = Promise.withResolvers<typeof gifs>();
+    mocks.searchGifs.mockReturnValueOnce(first.promise).mockResolvedValueOnce(gifs);
+    mocks.channel!.onmessage({ id, kind: 'search', q: 'cha', page: 1 });
+    mocks.channel!.onmessage({ id: later, kind: 'search', q: 'chat', page: 1 });
+    await tick(); first.resolve({ results: [], hasNext: false }); await tick();
+    expect(results()).toEqual([{ id: later, ok: true, gifs }]);
+    expect((mocks.searchGifs.mock.calls[0]![4] as AbortSignal).aborted).toBe(true);
+  });
+  test('announces GIF search only while online on a server that offers it', async () => {
+    const quickSend = new QuickSend(() => preferences); await quickSend.initialize();
+    const state = () => mocks.emitTo.mock.calls.filter(call => call[1] === 'quick-send-state').at(-1)?.[2];
+    quickSend.setOnline(true, true); expect(state()).toEqual({ online: true, channelName: 'memes', gifSearch: true });
+    quickSend.setOnline(true); expect(state()).toMatchObject({ gifSearch: false });
+    quickSend.setOnline(false, true); expect(state()).toMatchObject({ online: false, gifSearch: false });
   });
   test('reports offline state and server refusals to the quick-send window', async () => {
     expect(await (await relay(false))({ id, kind: 'text', text: 'gg' })).toEqual({ id, ok: false, error: 'DropMeme n’est pas connecté au salon.' });

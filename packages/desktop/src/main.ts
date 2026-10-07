@@ -28,7 +28,7 @@ let connected = false;
 const display = new Display();
 const social = new Social(() => preferences);
 const quickSend = new QuickSend(() => preferences);
-const setOnline = (online: boolean) => { social.setOnline(online); quickSend.setOnline(online); };
+const setOnline = (online: boolean, gifSearch?: boolean) => { social.setOnline(online); quickSend.setOnline(online, gifSearch); };
 const queue = new MediaQueue(preferences.settings, media => {
   void display.show(media, preferences.settings).catch(async error => {
     message(error instanceof Error ? error.message : 'Affichage impossible.'); await display.hide(media.id); queue.complete(media.id);
@@ -66,7 +66,7 @@ function startConnection(token: string): void {
   connection = new Connection(preferences.server, token, event => {
     if (event.type === 'ready') {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
-      setOnline(event.protocol === 2);
+      setOnline(event.protocol === 2, event.gifSearch);
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
     else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);

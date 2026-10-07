@@ -3,19 +3,21 @@ import { emitTo } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { cursorPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/api/window';
 import { register, unregister, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
-import { quickSendRequestSchema } from '@dropmeme/shared';
+import { quickSendRequestSchema, type GifSearchResponse } from '@dropmeme/shared';
 import { applyWindowGeometry } from './monitors.js';
 import { readToken, type Preferences } from './preferences.js';
-import { sendText } from './send.js';
+import { searchGifs, sendGif, sendText } from './send.js';
 
-export interface QuickSendState { online: boolean; channelName?: string | undefined }
-export type QuickSendResult = { id: string; ok: true } | { id: string; ok: false; error: string };
+export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean }
+export type QuickSendResult = { id: string; ok: true; gifs?: GifSearchResponse } | { id: string; ok: false; error: string };
 // Logical size, same as the quick-send window in tauri.conf.json.
-const size = { width: 640, height: 360 };
+const size = { width: 640, height: 440 };
 
-/** Main-window side of the launcher. The quick-send webview never reads the token: it asks main to send. */
+/** Main-window side of the launcher. The quick-send webview never reads the token: it asks main to send or search. */
 export class QuickSend {
   private online = false;
+  private gifSearch = false;
+  private search: AbortController | undefined;
   private shortcut: string | undefined;
   private window: WebviewWindow | null = null;
 
@@ -30,7 +32,8 @@ export class QuickSend {
     await invoke('quick_send_listen', { channel: relay });
   }
 
-  setOnline(online: boolean): void { this.online = online; this.push('quick-send-state'); }
+  /** `gifSearch` comes from the server's ready event; a 0.2 server omits it. */
+  setOnline(online: boolean, gifSearch = false): void { this.online = online; this.gifSearch = online && gifSearch; this.push('quick-send-state'); }
 
   /** Registers the new shortcut before releasing the old one, so a refused change keeps the previous binding. */
   async bindShortcut(accelerator: string): Promise<void> {
@@ -45,7 +48,7 @@ export class QuickSend {
 
   private push(event: 'quick-send-state' | 'quick-send-open'): void {
     if (!this.window) return;
-    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName };
+    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: this.gifSearch };
     void emitTo('quick-send', event, state).catch(() => {});
   }
 
@@ -68,13 +71,19 @@ export class QuickSend {
   private async relay(payload: unknown): Promise<void> {
     const request = quickSendRequestSchema.safeParse(payload);
     if (!request.success) return;
-    const { id, text } = request.data;
+    const data = request.data; const { id } = data;
+    // A newer search supersedes the previous one: its late answer would overwrite fresher results.
+    const search = data.kind === 'search' ? (this.search?.abort(), this.search = new AbortController()) : undefined;
     let result: QuickSendResult = { id, ok: true };
     try {
       const token = this.online ? await readToken() : undefined;
       if (!token) throw new Error('DropMeme n’est pas connecté au salon.');
-      await sendText(this.preferences().server, token, text);
+      const { server } = this.preferences();
+      if (data.kind === 'text') await sendText(server, token, data.text);
+      else if (data.kind === 'gif') await sendGif(server, token, data.gif);
+      else result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
     } catch (error) { result = { id, ok: false, error: error instanceof Error ? error.message : 'Envoi impossible.' }; }
+    if (search && search !== this.search) return;
     await emitTo('quick-send', 'quick-send-result', result).catch(() => {});
   }
 }

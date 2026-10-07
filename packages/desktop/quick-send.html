@@ -1,10 +1,11 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DropMeme · Envoi rapide</title></head><body>
   <main class="launcher">
-    <form id="quick-form"><input id="query" autocomplete="off" spellcheck="false" maxlength="2000" aria-label="Message à envoyer au salon" autofocus /></form>
+    <form id="quick-form"><input id="query" role="combobox" aria-autocomplete="list" aria-controls="results" aria-expanded="false" autocomplete="off" spellcheck="false" maxlength="2000" aria-label="Message à envoyer ou GIF à rechercher" autofocus /></form>
     <p id="quick-status" role="status"></p>
-    <p id="quick-error" role="alert"></p>
-    <ul id="results" aria-label="Résultats"></ul>
-    <footer>Entrée : envoyer au salon · Échap : fermer</footer>
+    <ul id="results" role="listbox" aria-label="GIF Klipy" hidden></ul>
+    <button id="more" class="more" type="button" hidden>Plus de résultats</button>
+    <footer>Entrée : envoyer au salon · Ctrl+Entrée : envoyer sans fermer · Flèches : choisir un GIF · Échap : fermer</footer>
+    <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
   </main><script type="module" src="/src/quick-send.ts"></script>
 </body></html>
