@@ -98,6 +98,11 @@
           <div class="section-heading"><h2 id="send-heading">Envoyer sur les écrans</h2><span class="eyebrow">ENVOIS</span></div>
           <form id="send-form"><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select><label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea><label for="send-file">Ou un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /><p class="hint">Le texte et le fichier sont envoyés séparément. Taille maximale : 25 Mo par défaut.</p><button id="send" type="submit" class="button primary" disabled>Envoyer</button></form>
         </section>
+        <section class="panel shortcut-panel" aria-labelledby="shortcut-heading">
+          <div class="section-heading"><h2 id="shortcut-heading">Envoi rapide</h2><span class="eyebrow">RACCOURCI</span></div>
+          <label for="quickSendShortcut">Raccourci clavier</label><input id="quickSendShortcut" readonly autocomplete="off" />
+          <p id="shortcut-status" class="hint" role="status">Ouvre l’envoi rapide depuis n’importe quelle application. Cliquez dans le champ puis appuyez sur la combinaison voulue.</p>
+        </section>
       </section>
 
       <section id="view-about" class="view" role="tabpanel" aria-labelledby="tab-about" hidden>

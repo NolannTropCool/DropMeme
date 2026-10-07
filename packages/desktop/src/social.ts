@@ -1,6 +1,7 @@
 import type { Peer } from '@dropmeme/shared';
 import { readToken, type Preferences } from './preferences.js';
 import { toast } from './toast.js';
+import { sendFile, sendText } from './send.js';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -62,24 +63,11 @@ export class Social {
     try {
       const token = await readToken();
       if (!token) throw new Error('Abonnement introuvable.');
-      const request = async (path: string, body: BodyInit, json = false) => {
+      const unchanged = () => {
         if (!this.online || this.preferences().server !== server || this.preferences().subscription?.deviceId !== subscription?.deviceId) throw new Error('L’abonnement a changé. Relancez l’envoi.');
-        const response = await fetch(`${server}${path}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}`, ...(json ? { 'Content-Type': 'application/json' } : {}) },
-          body, credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(90_000),
-        });
-        if (!response.ok) {
-          const result: unknown = await response.json().catch(() => null);
-          throw new Error(result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : 'Envoi refusé par le serveur.');
-        }
-        sent++;
       };
-      if (text) { await request('/v2/send/text', JSON.stringify({ text, recipientId }), true); textInput.value = ''; }
-      if (file) {
-        const body = new FormData(); body.append('file', file);
-        await request(`/v2/send/file${recipientId ? `?recipientId=${encodeURIComponent(recipientId)}` : ''}`, body);
-        fileInput.value = '';
-      }
+      if (text) { unchanged(); await sendText(server, token, text, recipientId); sent++; textInput.value = ''; }
+      if (file) { unchanged(); await sendFile(server, token, file, recipientId); sent++; fileInput.value = ''; }
       toast(`${sent} envoi(s) transmis${recipientId ? ' au destinataire' : ' au salon'}.`);
     } catch (error) {
       toast(`${sent ? `${sent} envoi transmis. ` : ''}${error instanceof Error ? error.message : 'Envoi impossible.'}`, 'error');

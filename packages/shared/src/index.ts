@@ -45,6 +45,7 @@ export const settingsSchema = z.object({
   audio: z.boolean().default(false),
   maxQueue: z.number().int().min(1).max(30).default(10),
   startMinimized: z.boolean().default(false),
+  quickSendShortcut: z.string().trim().min(1).max(100).default('CommandOrControl+Shift+Space'),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const defaultSettings: Settings = settingsSchema.parse({});
@@ -75,6 +76,11 @@ export const serverEventSchema = z.discriminatedUnion('type', [
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 export const textRequestSchema = z.object({ text: z.string().trim().min(1).max(2000), recipientId: z.string().uuid().optional() }).strict();
+/** Quick-send webview to main webview. Always the whole channel. GIF, file and favorite kinds join this union. */
+export const quickSendRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ id: z.string().uuid(), kind: z.literal('text'), text: textRequestSchema.shape.text }).strict(),
+]);
+export type QuickSendRequest = z.infer<typeof quickSendRequestSchema>;
 export function isAnimation(media: Pick<MediaEvent, 'kind' | 'name' | 'loop' | 'animation'>): boolean {
   if (media.animation !== undefined) return media.animation;
   return media.animation === true || (media.kind === 'video' && media.loop === true) || (media.kind === 'image' && /\.(gif|webp)$/i.test(media.name));
