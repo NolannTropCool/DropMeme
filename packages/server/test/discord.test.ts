@@ -10,7 +10,7 @@ const guildId = '223456789012345678';
 const config: Config = {
   discordToken: 'fixture-secret-do-not-log', applicationId: appId, guildId,
   allowedChannelIds: new Set(['323456789012345678']), publicUrl: 'https://example.com',
-  joinKey: undefined, port: 3000, host: '0.0.0.0', databasePath: ':memory:', maxMediaBytes: 1024, maxClients: 10,
+  joinKey: undefined, port: 3000, host: '0.0.0.0', databasePath: ':memory:', maxMediaBytes: 1024, maxClients: 10, gifApiKey: undefined,
 };
 
 function api() {

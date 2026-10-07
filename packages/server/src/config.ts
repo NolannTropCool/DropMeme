@@ -13,6 +13,8 @@ const envSchema = z.object({
   DATABASE_PATH: z.string().default('./data/dropmeme.sqlite'),
   MAX_MEDIA_MB: z.coerce.number().int().min(1).max(100).default(25),
   MAX_CLIENTS: z.coerce.number().int().min(1).max(1000).default(100),
+  // Klipy puts the key in the URL path: restrict it to path-safe characters.
+  GIF_API_KEY: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/).optional(),
 });
 
 export interface Config {
@@ -27,6 +29,7 @@ export interface Config {
   databasePath: string;
   maxMediaBytes: number;
   maxClients: number;
+  gifApiKey: string | undefined;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv): Config {
@@ -41,6 +44,6 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
     guildId: v.DISCORD_GUILD_ID, allowedChannelIds: new Set(v.ALLOWED_CHANNEL_IDS),
     publicUrl: v.PUBLIC_URL, joinKey: v.JOIN_KEY, port: v.PORT, host: v.HOST,
     databasePath: v.DATABASE_PATH, maxMediaBytes: v.MAX_MEDIA_MB * 1024 * 1024,
-    maxClients: v.MAX_CLIENTS,
+    maxClients: v.MAX_CLIENTS, gifApiKey: v.GIF_API_KEY,
   };
 }

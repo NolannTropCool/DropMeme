@@ -16,7 +16,19 @@ describe('media safety', () => {
     'https://media.tenor.com/id/player.html',
     'https://tenor.com/view/cat-123',
     'https://images-ext-3.discordapp.net/external/test.gif',
+    'http://static.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
+    'https://static.klipy.com.evil.example/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
+    'https://static3.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
+    'https://api.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
+    'https://static.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4?redirect=1',
+    'https://static.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/page.html',
+    'https://static.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/La0HaAzw.mp4',
+    'https://static.klipy.com/other/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
+    'https://static.klipy.com:8443/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4',
   ])('rejects untrusted URL %s', url => { expect(isDiscordMediaUrl(url)).toBe(false); });
+  test.each(['static.klipy.com', 'static1.klipy.com', 'static2.klipy.com'])('accepts Klipy CDN media on %s', host => {
+    for (const extension of ['mp4', 'webp', 'gif', 'webm']) expect(isDiscordMediaUrl(`https://${host}/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.${extension}`)).toBe(true);
+  });
   test('only known types and bounded files are accepted', () => {
     expect(classifyMedia({ url: valid, name: 'image.png', contentType: 'image/png', size: 10 }, 100)).toBe('image');
     expect(classifyMedia({ url: valid, name: 'image.png', contentType: 'image/svg+xml', size: 10 }, 100)).toBeUndefined();
