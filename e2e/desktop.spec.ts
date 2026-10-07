@@ -220,6 +220,18 @@ test('animated WebP keeps moving and a video follows its own duration', async ({
   await expect(page.locator('#changelog')).toContainText('0.2.0');
 });
 
+test('favorites tab tells the browser preview they live in the Windows app, without errors', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await openTab(page, 'Favoris');
+  await expect(page.getByRole('heading', { name: 'Vos favoris' })).toBeVisible();
+  await expect(page.locator('#favorites-usage')).toHaveText('Les favoris sont disponibles dans l’application Windows.');
+  await expect(page.locator('#favorites-list li')).toHaveCount(0);
+  await expect(page.locator('#favorites-empty')).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Favoris' })).toHaveAttribute('aria-selected', 'true');
+  expect(errors).toEqual([]);
+});
+
 test('tabs switch with the keyboard, keep the status header and remember the last tab', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('tab', { name: 'Salon' })).toHaveAttribute('aria-selected', 'true');

@@ -4,6 +4,7 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseSchema, normalizeServerUrl, type MediaEvent } from '@dropmeme/shared';
 import { Social } from './social.js';
 import { QuickSend, shortcutFromKeyboard, shortcutLabel } from './quick-send-host.js';
+import { Favorites } from './favorites.js';
 import { initializeUpdates } from './updates.js';
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
@@ -27,7 +28,8 @@ let placing = false;
 let connected = false;
 const display = new Display();
 const social = new Social(() => preferences);
-const quickSend = new QuickSend(() => preferences);
+const favorites = new Favorites(() => quickSend.push());
+const quickSend = new QuickSend(() => preferences, favorites);
 const setOnline = (online: boolean, features?: Parameters<QuickSend['setOnline']>[1]) => { social.setOnline(online); quickSend.setOnline(online, features); };
 const queue = new MediaQueue(preferences.settings, media => {
   void display.show(media, preferences.settings).catch(async error => {
@@ -69,8 +71,14 @@ function startConnection(token: string): void {
       setOnline(event.protocol === 2, event);
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
-    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
-    else if (event.type === 'retract') for (const id of queue.retract(event.ids)) void display.hide(id).then(() => queue.complete(id));
+    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId) {
+      // Received even when paused or filtered out: it can still become a favorite.
+      favorites.receive(event);
+      if (!previewing && !placing) queue.enqueue(event);
+    } else if (event.type === 'retract') {
+      favorites.retract(event.ids);
+      for (const id of queue.retract(event.ids)) void display.hide(id).then(() => queue.complete(id));
+    }
     else if (event.type === 'presence') social.setPeers(event.peers);
     else if (event.type === 'error') message(event.message);
   }, state => {
@@ -282,6 +290,8 @@ async function initialize(): Promise<void> {
   if (![...$<HTMLSelectElement>('monitor').options].some(option => option.value === preferences.settings.monitor)) preferences.settings.monitor = 'primary';
   renderSettings(); subscriptionUi();
   initializeUpdates();
+  try { await favorites.initialize(); }
+  catch { message('Les favoris ne peuvent pas être chargés.'); }
   if (isTauri()) {
     input('autostart').checked = await isEnabled();
     await getCurrentWindow().onCloseRequested(event => { event.preventDefault(); void getCurrentWindow().hide(); });

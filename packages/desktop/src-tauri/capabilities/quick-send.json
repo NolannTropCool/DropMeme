@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "quick-send",
-  "description": "Quick-send launcher listens to the main window, hides itself and takes focus back after a file drop; its requests and files go through the quick_send and stage_file commands, never through emitted events. No credential, file system, store or event-emitting access.",
+  "description": "Quick-send launcher listens to the main window, hides itself and takes focus back after a file drop; its requests and files go through the quick_send and stage_file commands, never through emitted events. Favorites are read through favorite_read and sent through stage_favorite, both limited to appDataDir/favorites by Rust; main alone writes them. No credential, file system, store or event-emitting access.",
   "windows": ["quick-send"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-hide", "core:window:allow-set-focus"]
 }

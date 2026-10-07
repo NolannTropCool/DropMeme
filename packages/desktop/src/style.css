@@ -51,6 +51,10 @@ input:not([type=checkbox]):not([type=range]), select, textarea { width: 100%; ba
 .direct.on { color: var(--accent); }
 .social-panel .toggle-row { margin: 18px 0; }
 .send-panel { max-width: 560px; }
+.favorites li { justify-content: flex-start; gap: 10px; }
+.favorites img, .favorites video { width: 64px; height: 48px; flex-shrink: 0; object-fit: cover; border-radius: 6px; background: #141715; }
+.favorites input:not([type=checkbox]) { flex: 1; width: auto; padding: 8px 10px; }
+.favorite-detail { flex-shrink: 0; color: var(--muted); font-size: 11px; min-width: 88px; }
 .send-panel form label:not(:first-child) { margin-top: 16px; }
 textarea { resize: vertical; }
 .release-panel details { margin-top: 20px; }
