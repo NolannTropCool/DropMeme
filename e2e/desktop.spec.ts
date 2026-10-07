@@ -1,8 +1,9 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { appVersion } from '@dropmeme/shared';
 
 const animatedGif = readFileSync(new URL('../packages/desktop/public/preview.gif', import.meta.url));
+const openTab = (page: Page, name: string) => page.getByRole('tab', { name, exact: true }).click();
 
 test('0.1 preferences retain layout and duration while new consent and concurrency start disabled', async ({ page }) => {
   await page.goto('/');
@@ -19,6 +20,7 @@ test('0.1 preferences retain layout and duration while new consent and concurren
 test('sober settings UI persists preferences and previews the local overlay', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'DropMeme', exact: true })).toBeVisible();
+  await openTab(page, 'Affichage');
   await expect(page.getByLabel('Lire le son')).not.toBeChecked();
   await page.getByLabel('Durée des GIF').fill('2');
   await page.getByLabel('Durée des GIF').blur();
@@ -70,7 +72,7 @@ test('code pairing authenticates websocket, displays a media and unsubscribes', 
 });
 
 test('drags and resizes the placement tab, saves it and previews a GIF in that exact zone', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/'); await openTab(page, 'Affichage');
   await page.getByRole('button', { name: 'Placer sur l’écran' }).click();
   const editor = page.frameLocator('iframe[title="Placer la zone"]');
   const iframe = page.locator('iframe[title="Placer la zone"]');
@@ -97,7 +99,7 @@ test('drags and resizes the placement tab, saves it and previews a GIF in that e
 });
 
 test('cancelling placement preserves settings and the preview reports a failed GIF load', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/'); await openTab(page, 'Affichage');
   await page.getByRole('button', { name: 'Placer sur l’écran' }).click();
   await page.frameLocator('iframe[title="Placer la zone"]').getByRole('button', { name: 'Annuler', exact: true }).click();
   await expect(page.getByLabel('Position', { exact: true })).toHaveValue('bottom-right');
@@ -108,7 +110,7 @@ test('cancelling placement preserves settings and the preview reports a failed G
 });
 
 test('bundled GIF actually animates instead of rendering only its first frame', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/'); await openTab(page, 'Affichage');
   await page.getByRole('button', { name: 'Tester l’affichage' }).click();
   const image = page.frameLocator('iframe[title="Aperçu du média"]').getByRole('img');
   await expect(image).toBeVisible();
@@ -119,7 +121,7 @@ test('bundled GIF actually animates instead of rendering only its first frame', 
 });
 
 test('simultaneous preview uses one surface, separate tiles and the GIF duration', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/'); await openTab(page, 'Affichage');
   await expect(page.getByLabel('Plusieurs GIF en même temps')).not.toBeChecked();
   await page.getByLabel('Durée des GIF').fill('2'); await page.getByLabel('Durée des GIF').blur();
   await page.getByLabel('Plusieurs GIF en même temps').check();
@@ -134,7 +136,7 @@ test('simultaneous preview uses one surface, separate tiles and the GIF duration
 });
 
 test('custom GIF zones can be placed, persisted and previewed together', async ({ page }) => {
-  await page.goto('/'); await page.getByLabel('Plusieurs GIF en même temps').check();
+  await page.goto('/'); await openTab(page, 'Affichage'); await page.getByLabel('Plusieurs GIF en même temps').check();
   await page.getByLabel('Placement des GIF').selectOption('zones');
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: 'Ajouter une zone' }).click();
@@ -170,12 +172,13 @@ test('presence, targeted sending and consent withdrawal never silently broadcast
   await page.getByLabel('Adresse du serveur').fill(server); await page.getByLabel('Code de connexion').fill('AAAAAAAA-BBBBBBBB');
   await page.getByRole('button', { name: 'S’abonner au salon' }).click();
   await expect(page.locator('#peers-list')).toContainText('Bob');
+  await expect(page.locator('#peers-list .avatar')).toHaveText('B');
   const frame = page.frameLocator('iframe[title="Aperçu du média"]');
   await expect(frame.getByText('<img src=x onerror=alert(1)>', { exact: true })).toBeVisible();
   await expect(frame.getByRole('img')).toHaveCount(0);
-  await page.getByLabel('Destinataire').selectOption(peerId);
+  await openTab(page, 'Envoyer'); await page.getByLabel('Destinataire').selectOption(peerId);
   await page.locator('#send-text').fill('Bonjour Bob'); await page.getByRole('button', { name: 'Envoyer', exact: true }).click();
-  await expect(page.locator('#send-status')).toContainText('au destinataire');
+  await expect(page.locator('#toasts')).toContainText('au destinataire');
   expect(sent).toEqual([{ text: 'Bonjour Bob', recipientId: peerId }]);
   presence(false);
   await expect(page.getByRole('button', { name: 'Envoyer', exact: true })).toBeDisabled();
@@ -198,10 +201,11 @@ test('animated WebP keeps moving and a video follows its own duration', async ({
       socket.send(JSON.stringify({ ...common, id: 'video', kind: 'video', url: `${server}/v1/media/video`, name: 'video.mp4' }));
     });
   });
-  await page.goto('/');
+  await page.goto('/'); await openTab(page, 'Affichage');
   await page.getByLabel('Durée des GIF').fill('2'); await page.getByLabel('Durée des GIF').blur();
   await page.getByLabel('Durée des vidéos').fill('2'); await page.getByLabel('Durée des vidéos').blur();
   await page.getByLabel('Images et texte').fill('100'); await page.getByLabel('Images et texte').blur();
+  await openTab(page, 'Salon');
   await page.getByLabel('Adresse du serveur').fill(server); await page.getByLabel('Code de connexion').fill('AAAAAAAA-BBBBBBBB');
   await page.getByRole('button', { name: 'S’abonner au salon' }).click();
   const frame = page.frameLocator('iframe[title="Aperçu du média"]'); const image = frame.getByRole('img');
@@ -212,6 +216,24 @@ test('animated WebP keeps moving and a video follows its own duration', async ({
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0);
   await expect(page.locator('iframe[title="Aperçu du média"]')).toBeHidden({ timeout: 4000 });
   await expect(page.locator('#queue-status')).toHaveText('Aucun média en attente');
-  await page.getByText('Nouveautés et historique', { exact: true }).click();
+  await openTab(page, 'À propos'); await page.getByText('Nouveautés et historique', { exact: true }).click();
   await expect(page.locator('#changelog')).toContainText('0.2.0');
+});
+
+test('tabs switch with the keyboard, keep the status header and remember the last tab', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('tab', { name: 'Salon' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Adresse du serveur')).toBeVisible();
+  await page.getByRole('tab', { name: 'Salon' }).focus(); await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Affichage' })).toBeFocused();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+  await expect(page.getByLabel('Durée des GIF')).toBeVisible();
+  await expect(page.getByLabel('Adresse du serveur')).toBeHidden();
+  await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('tab', { name: 'À propos' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#status')).toHaveText('Déconnecté');
+  await expect(page.getByRole('button', { name: 'Passer', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'À propos' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('button', { name: 'Rechercher une mise à jour' })).toBeVisible();
 });

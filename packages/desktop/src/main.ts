@@ -10,6 +10,7 @@ import { Connection } from './connection.js';
 import { placeOverlay } from './placement-controller.js';
 import { settingsForMonitor } from './geometry.js';
 import { readPreferences, writePreferences, readToken, saveToken, clearToken, type Preferences } from './preferences.js';
+import './tabs.js';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -33,8 +34,14 @@ const queue = new MediaQueue(preferences.settings, media => {
   $('queue-status').textContent = paused ? 'Réception en pause' : `${count ? `${count} média(s) à l’écran · ` : ''}${pending ? `${pending} en attente` : 'Aucun média en attente'}`;
 });
 
+let live = { text: 'Déconnecté', online: false };
 function status(text: string, online = false): void {
-  $('status').textContent = text; $('status-dot').classList.toggle('online', online);
+  live = { text, online };
+  // Pausing keeps the connection: the header says so until resumed or disconnected.
+  const pause = paused && connected;
+  $('status').textContent = pause ? 'En pause' : text;
+  const dot = $('status-dot').classList;
+  dot.toggle('online', online && !pause); dot.toggle('paused', pause); dot.toggle('warning', !pause && text === 'Discord indisponible');
 }
 
 let saves: Promise<void> = Promise.resolve();
@@ -46,7 +53,7 @@ function save(): Promise<void> {
 
 function subscriptionUi(): void {
   $('connect-form').hidden = !!preferences.subscription;
-  $('subscription').hidden = !preferences.subscription;
+  $('subscription').hidden = $('pause').hidden = !preferences.subscription;
   $('channel-name').textContent = preferences.subscription?.channelName ?? '';
   $('channel-id').textContent = preferences.subscription?.channelId ?? '';
 }
@@ -125,7 +132,7 @@ $('disconnect').onclick = async () => {
 
 $('pause').onclick = () => {
   paused = !paused; queue.setPaused(paused); previewing = false; previews.clear();
-  void display.hide(); $('pause').textContent = paused ? 'Reprendre' : 'Mettre en pause';
+  void display.hide(); $('pause').textContent = paused ? 'Reprendre' : 'Mettre en pause'; status(live.text, live.online);
 };
 $('skip').onclick = async () => {
   const id = queue.currentId() ?? previews.values().next().value;

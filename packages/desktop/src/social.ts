@@ -1,5 +1,6 @@
 import type { Peer } from '@dropmeme/shared';
 import { readToken, type Preferences } from './preferences.js';
+import { toast } from './toast.js';
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -29,8 +30,13 @@ export class Social {
     element('peers-list').replaceChildren();
     for (const peer of this.peers) {
       const row = document.createElement('li');
-      row.textContent = `${peer.name}${peer.id === this.preferences().subscription?.deviceId ? ' (vous)' : ''} · ${peer.acceptDirect ? 'Accepte les envois directs' : 'Envois directs désactivés'}`;
-      element('peers-list').append(row);
+      const avatar = document.createElement('span'); avatar.className = 'avatar'; avatar.ariaHidden = 'true';
+      avatar.textContent = [...peer.name.trim()][0]?.toUpperCase() ?? '?';
+      const name = document.createElement('strong'); name.textContent = peer.name;
+      if (peer.id === this.preferences().subscription?.deviceId) name.append(' ', Object.assign(document.createElement('small'), { textContent: 'vous' }));
+      const direct = document.createElement('span'); direct.className = peer.acceptDirect ? 'direct on' : 'direct';
+      direct.textContent = peer.acceptDirect ? 'Envois directs acceptés' : 'Envois directs désactivés';
+      row.append(avatar, name, direct); element('peers-list').append(row);
     }
     this.recipient.replaceChildren(new Option('Tout le salon', ''));
     for (const peer of peers.filter(peer => peer.acceptDirect)) this.recipient.add(new Option(peer.name, peer.id));
@@ -50,9 +56,8 @@ export class Social {
     const text = textInput.value.trim(); const file = fileInput.files?.[0];
     const recipientId = this.recipient.value || undefined;
     const { server, subscription } = this.preferences();
-    const status = element('send-status');
-    if (!text && !file) { status.textContent = 'Saisissez un texte ou choisissez un fichier.'; return; }
-    this.busy = true; this.render(); status.textContent = 'Envoi…';
+    if (!text && !file) { toast('Saisissez un texte ou choisissez un fichier.', 'error'); return; }
+    this.busy = true; this.render(); this.button.textContent = 'Envoi…';
     let sent = 0;
     try {
       const token = await readToken();
@@ -75,9 +80,9 @@ export class Social {
         await request(`/v2/send/file${recipientId ? `?recipientId=${encodeURIComponent(recipientId)}` : ''}`, body);
         fileInput.value = '';
       }
-      status.textContent = `${sent} envoi(s) transmis${recipientId ? ' au destinataire' : ' au salon'}.`;
+      toast(`${sent} envoi(s) transmis${recipientId ? ' au destinataire' : ' au salon'}.`);
     } catch (error) {
-      status.textContent = `${sent ? `${sent} envoi transmis. ` : ''}${error instanceof Error ? error.message : 'Envoi impossible.'}`;
-    } finally { this.busy = false; this.render(); }
+      toast(`${sent ? `${sent} envoi transmis. ` : ''}${error instanceof Error ? error.message : 'Envoi impossible.'}`, 'error');
+    } finally { this.busy = false; this.button.textContent = 'Envoyer'; this.render(); }
   }
 }

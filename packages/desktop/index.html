@@ -8,59 +8,103 @@
   </head>
   <body>
     <main class="shell">
-      <header class="topbar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">d.</span><div><h1>DropMeme</h1><p>Du salon à votre écran.</p></div></div>
-        <div class="connection-pill"><span id="status-dot" class="status-dot"></span><span id="status">Déconnecté</span></div>
-      </header>
-      <section class="panel connect-panel" aria-labelledby="connection-heading">
-        <div class="section-heading"><h2 id="connection-heading">Votre salon</h2><span class="eyebrow">01 / CONNEXION</span></div>
-        <form id="connect-form">
-          <label for="server">Adresse du serveur</label>
-          <input id="server" type="url" placeholder="https://dropmeme.example.com" required autocomplete="url" />
-          <div class="mode-tabs" role="group" aria-label="Méthode de connexion"><button type="button" id="mode-code" class="tab active" aria-pressed="true">Code Discord</button><button type="button" id="mode-channel" class="tab" aria-pressed="false">ID du salon</button></div>
-          <div id="code-fields"><label for="code">Code de connexion</label><input id="code" placeholder="XXXXXXXX-XXXXXXXX" autocomplete="off" spellcheck="false" maxlength="17" /><p class="hint">Envoyez <code>/dropmeme</code> dans le salon Discord. Le code privé expire après 10 minutes.</p></div>
-          <div id="channel-fields" hidden><label for="channel">ID du salon</label><input id="channel" inputmode="numeric" placeholder="123456789012345678" /><label for="join-key">Clé d’invitation</label><input id="join-key" type="password" autocomplete="off" /><p class="hint">Demandez la clé à l’administrateur du serveur.</p></div>
-          <button type="submit" class="button primary" id="connect">S’abonner au salon <span aria-hidden="true">↗</span></button>
-        </form>
-        <div id="subscription" hidden><div class="channel-summary"><span aria-hidden="true">#</span><div><strong id="channel-name"></strong><p id="channel-id" class="hint"></p></div></div><div class="button-row"><button id="pause" class="button" type="button">Mettre en pause</button><button id="disconnect" class="button quiet" type="button">Se désabonner</button></div></div>
-        <p id="message" role="status" aria-live="polite"></p>
-      </section>
-      <section class="panel settings-panel" aria-labelledby="display-heading">
-        <div class="section-heading"><h2 id="display-heading">Affichage</h2><span class="eyebrow">02 / PRÉFÉRENCES</span></div>
-        <div class="fields-grid">
-          <div><label for="monitor">Écran</label><select id="monitor"><option value="primary">Écran principal</option></select></div>
-          <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
-          <div><label for="width">Largeur <span class="unit">px logiques</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
-          <div><label for="height">Hauteur <span class="unit">px logiques</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
-          <div><label for="gifDurationSeconds">Durée des GIF <span class="unit">secondes</span></label><input id="gifDurationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="videoDurationSeconds">Durée des vidéos <span class="unit">secondes, maximum</span></label><input id="videoDurationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="durationSeconds">Images et texte <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div>
+      <div class="chrome">
+        <header class="topbar">
+          <div class="brand"><span class="brand-mark" aria-hidden="true">d.</span><div><h1>DropMeme</h1><p>Du salon à votre écran.</p></div></div>
+          <button id="hide" type="button" class="text-button">Réduire</button>
+        </header>
+        <div class="statusbar" role="region" aria-label="Réception">
+          <div class="connection-pill"><span id="status-dot" class="status-dot"></span><span id="status">Déconnecté</span></div>
+          <span id="queue-status">Aucun média en attente</span>
+          <div class="statusbar-actions"><button id="pause" class="button" type="button" hidden>Mettre en pause</button><button id="skip" type="button" class="text-button">Passer</button><button id="clear" type="button" class="text-button">Vider la file</button></div>
         </div>
-        <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le petit onglet, redimensionnez le cadre, puis validez avec ✓. Une disposition par écran.</p></div>
-        <div class="toggle-row"><label for="showAuthor">Afficher l’expéditeur</label><input id="showAuthor" type="checkbox" class="switch" /></div>
-        <div class="toggle-row"><label for="multiDisplay">Plusieurs GIF en même temps<span>Les vidéos classiques restent en file d’attente.</span></label><input id="multiDisplay" type="checkbox" class="switch" /></div>
-        <div id="multi-fields" hidden class="fields-grid"><div><label for="maxSimultaneous">GIF simultanés</label><input id="maxSimultaneous" type="number" min="2" max="8" /></div><div><label for="multiPlacement">Placement des GIF</label><select id="multiPlacement"><option value="random">Aléatoire sur l’écran choisi</option><option value="zones">Mes zones</option></select></div></div>
-        <div id="zones-fields" hidden><p class="hint">Une animation par zone disponible. Le surplus attend son tour. Jusqu’à 8 zones, sur plusieurs écrans.</p><ul id="zones-list" class="item-list"></ul><button id="add-zone" class="button" type="button">Ajouter une zone</button></div>
-        <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
-        <div class="divider"></div>
-        <div class="toggle-row"><label for="sound">Lire le son <span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>
-        <div class="range-field"><label for="volume">Volume <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100" /></div>
-        <fieldset class="media-types"><legend>Accepter les médias</legend><label><input id="images" type="checkbox" /> Images & GIF</label><label><input id="videos" type="checkbox" /> Vidéos</label><label><input id="audio" type="checkbox" /> Audio</label><label><input id="texts" type="checkbox" /> Texte</label></fieldset>
-        <div class="divider"></div>
-        <div class="toggle-row"><label for="autostart">Ouvrir avec Windows</label><input id="autostart" type="checkbox" class="switch" /></div>
-        <div class="toggle-row"><label for="startMinimized">Démarrer dans la zone de notification</label><input id="startMinimized" type="checkbox" class="switch" /></div>
-        <div class="button-row settings-actions"><button id="preview" class="button" type="button">Tester l’affichage</button><span id="saved" class="hint">Réglages enregistrés automatiquement.</span></div>
+        <p id="message" role="status" aria-live="polite"></p>
+        <div class="nav" role="tablist" aria-label="Sections">
+          <button type="button" role="tab" id="tab-salon" aria-controls="view-salon">Salon</button>
+          <button type="button" role="tab" id="tab-display" aria-controls="view-display">Affichage</button>
+          <button type="button" role="tab" id="tab-send" aria-controls="view-send">Envoyer</button>
+          <button type="button" role="tab" id="tab-about" aria-controls="view-about">À propos</button>
+        </div>
+      </div>
+
+      <section id="view-salon" class="view salon-view" role="tabpanel" aria-labelledby="tab-salon">
+        <section class="panel connect-panel" aria-labelledby="connection-heading">
+          <div class="section-heading"><h2 id="connection-heading">Votre salon</h2><span class="eyebrow">CONNEXION</span></div>
+          <form id="connect-form">
+            <label for="server">Adresse du serveur</label>
+            <input id="server" type="url" placeholder="https://dropmeme.example.com" required autocomplete="url" />
+            <div class="mode-tabs" role="group" aria-label="Méthode de connexion"><button type="button" id="mode-code" class="tab active" aria-pressed="true">Code Discord</button><button type="button" id="mode-channel" class="tab" aria-pressed="false">ID du salon</button></div>
+            <div id="code-fields"><label for="code">Code de connexion</label><input id="code" placeholder="XXXXXXXX-XXXXXXXX" autocomplete="off" spellcheck="false" maxlength="17" /><p class="hint">Envoyez <code>/dropmeme</code> dans le salon Discord. Le code privé expire après 10 minutes.</p></div>
+            <div id="channel-fields" hidden><label for="channel">ID du salon</label><input id="channel" inputmode="numeric" placeholder="123456789012345678" /><label for="join-key">Clé d’invitation</label><input id="join-key" type="password" autocomplete="off" /><p class="hint">Demandez la clé à l’administrateur du serveur.</p></div>
+            <button type="submit" class="button primary" id="connect">S’abonner au salon <span aria-hidden="true">↗</span></button>
+          </form>
+          <div id="subscription" hidden><div class="channel-summary"><span aria-hidden="true">#</span><div><strong id="channel-name"></strong><p id="channel-id" class="hint"></p></div></div><div class="button-row"><button id="disconnect" class="button quiet" type="button">Se désabonner</button></div></div>
+        </section>
+        <section class="panel social-panel" aria-labelledby="social-heading">
+          <div class="section-heading"><h2 id="social-heading">Dans le salon</h2><span class="eyebrow">PRÉSENCE</span></div>
+          <label for="displayName">Votre pseudo dans l’application</label><input id="displayName" maxlength="64" />
+          <div class="toggle-row"><label for="acceptDirect">Accepter les envois directs<span>Des abonnés de ce salon uniquement.</span></label><input id="acceptDirect" type="checkbox" class="switch" /></div>
+          <p id="presence-status" class="hint" role="status">Connectez-vous pour voir les abonnés en ligne.</p><ul id="peers-list" class="item-list peers"></ul>
+        </section>
       </section>
-      <section class="panel social-panel" aria-labelledby="social-heading">
-        <div class="section-heading"><h2 id="social-heading">Dans le salon</h2><span class="eyebrow">03 / ENVOIS</span></div>
-        <div class="fields-grid"><div><label for="displayName">Votre pseudo dans l’application</label><input id="displayName" maxlength="64" /></div><div class="toggle-row"><label for="acceptDirect">Accepter les envois directs<span>Des abonnés de ce salon uniquement.</span></label><input id="acceptDirect" type="checkbox" class="switch" /></div></div>
-        <p id="presence-status" class="hint" role="status">Connectez-vous pour voir les abonnés en ligne.</p><ul id="peers-list" class="item-list"></ul>
-        <form id="send-form"><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select><label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea><label for="send-file">Ou un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /><p class="hint">Le texte et le fichier sont envoyés séparément. Taille maximale : 25 Mo par défaut.</p><button id="send" type="submit" class="button primary" disabled>Envoyer</button><p id="send-status" class="hint" role="status"></p></form>
+
+      <section id="view-display" class="view settings-panel" role="tabpanel" aria-labelledby="tab-display" hidden>
+        <div class="view-actions wide"><button id="preview" class="button" type="button">Tester l’affichage</button><span id="saved" class="hint">Réglages enregistrés automatiquement.</span></div>
+        <section class="panel group" aria-labelledby="placement-heading">
+          <h3 id="placement-heading">Placement</h3>
+          <div class="fields-grid">
+            <div><label for="monitor">Écran</label><select id="monitor"><option value="primary">Écran principal</option></select></div>
+            <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
+            <div><label for="width">Largeur <span class="unit">px logiques</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
+            <div><label for="height">Hauteur <span class="unit">px logiques</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
+          </div>
+          <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le petit onglet, redimensionnez le cadre, puis validez avec ✓. Une disposition par écran.</p></div>
+          <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
+        </section>
+        <section class="panel group" aria-labelledby="durations-heading">
+          <h3 id="durations-heading">Durées</h3>
+          <div class="stack">
+            <div><label for="gifDurationSeconds">Durée des GIF <span class="unit">secondes</span></label><input id="gifDurationSeconds" type="number" min="2" max="120" /></div>
+            <div><label for="videoDurationSeconds">Durée des vidéos <span class="unit">secondes, maximum</span></label><input id="videoDurationSeconds" type="number" min="2" max="120" /></div>
+            <div><label for="durationSeconds">Images et texte <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
+          </div>
+        </section>
+        <section class="panel group" aria-labelledby="formats-heading">
+          <h3 id="formats-heading">Formats</h3>
+          <fieldset class="media-types"><legend>Accepter les médias</legend><label><input id="images" type="checkbox" /> Images & GIF</label><label><input id="videos" type="checkbox" /> Vidéos</label><label><input id="audio" type="checkbox" /> Audio</label><label><input id="texts" type="checkbox" /> Texte</label></fieldset>
+          <div class="toggle-row"><label for="showAuthor">Afficher l’expéditeur</label><input id="showAuthor" type="checkbox" class="switch" /></div>
+        </section>
+        <section class="panel group" aria-labelledby="sound-heading">
+          <h3 id="sound-heading">Son</h3>
+          <div class="toggle-row"><label for="sound">Lire le son <span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>
+          <div class="range-field"><label for="volume">Volume <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100" /></div>
+        </section>
+        <section class="panel group wide" aria-labelledby="multi-heading">
+          <h3 id="multi-heading">Plusieurs GIF</h3>
+          <div class="toggle-row"><label for="multiDisplay">Plusieurs GIF en même temps<span>Les vidéos classiques restent en file d’attente.</span></label><input id="multiDisplay" type="checkbox" class="switch" /></div>
+          <div id="multi-fields" hidden class="fields-grid"><div><label for="maxSimultaneous">GIF simultanés</label><input id="maxSimultaneous" type="number" min="2" max="8" /></div><div><label for="multiPlacement">Placement des GIF</label><select id="multiPlacement"><option value="random">Aléatoire sur l’écran choisi</option><option value="zones">Mes zones</option></select></div></div>
+          <div id="zones-fields" hidden><p class="hint">Une animation par zone disponible. Le surplus attend son tour. Jusqu’à 8 zones, sur plusieurs écrans.</p><ul id="zones-list" class="item-list"></ul><button id="add-zone" class="button" type="button">Ajouter une zone</button></div>
+        </section>
+        <details class="panel group wide advanced">
+          <summary>Réglages avancés</summary>
+          <div class="fields-grid"><div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div></div>
+          <div class="toggle-row"><label for="autostart">Ouvrir avec Windows</label><input id="autostart" type="checkbox" class="switch" /></div>
+          <div class="toggle-row"><label for="startMinimized">Démarrer dans la zone de notification</label><input id="startMinimized" type="checkbox" class="switch" /></div>
+        </details>
       </section>
-      <section class="panel release-panel" aria-labelledby="release-heading"><div class="section-heading"><h2 id="release-heading">DropMeme <span id="app-version"></span> <span id="update-badge" class="update-badge" hidden>Nouvelle version</span></h2><span class="eyebrow">04 / MISES À JOUR</span></div><div class="button-row"><button id="check-update" class="button" type="button">Rechercher une mise à jour</button><button id="install-update" class="button" type="button" hidden>Installer et redémarrer</button></div><p id="update-status" class="hint" role="status"></p><progress id="update-progress" max="100" value="0" hidden></progress><details><summary>Nouveautés et historique</summary><div id="changelog"></div></details></section>
-      <footer><span id="queue-status">Aucun média en attente</span><div><button id="skip" type="button" class="text-button">Passer</button><button id="clear" type="button" class="text-button">Vider la file</button><button id="hide" type="button" class="text-button">Réduire</button></div></footer>
+
+      <section id="view-send" class="view" role="tabpanel" aria-labelledby="tab-send" hidden>
+        <section class="panel send-panel" aria-labelledby="send-heading">
+          <div class="section-heading"><h2 id="send-heading">Envoyer sur les écrans</h2><span class="eyebrow">ENVOIS</span></div>
+          <form id="send-form"><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select><label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea><label for="send-file">Ou un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /><p class="hint">Le texte et le fichier sont envoyés séparément. Taille maximale : 25 Mo par défaut.</p><button id="send" type="submit" class="button primary" disabled>Envoyer</button></form>
+        </section>
+      </section>
+
+      <section id="view-about" class="view" role="tabpanel" aria-labelledby="tab-about" hidden>
+        <section class="panel release-panel" aria-labelledby="release-heading"><div class="section-heading"><h2 id="release-heading">DropMeme <span id="app-version"></span> <span id="update-badge" class="update-badge" hidden>Nouvelle version</span></h2><span class="eyebrow">MISES À JOUR</span></div><div class="button-row"><button id="check-update" class="button" type="button">Rechercher une mise à jour</button><button id="install-update" class="button" type="button" hidden>Installer et redémarrer</button></div><p id="update-status" class="hint" role="status"></p><progress id="update-progress" max="100" value="0" hidden></progress><details><summary>Nouveautés et historique</summary><div id="changelog"></div></details></section>
+      </section>
     </main>
+    <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

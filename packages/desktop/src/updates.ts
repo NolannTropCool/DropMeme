@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { appVersion } from '@dropmeme/shared';
 import { changelog } from './changelog.js';
+import { showTab } from './tabs.js';
 
 export function initializeUpdates(): void {
   const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -59,7 +60,7 @@ export function initializeUpdates(): void {
     finally { busy = false; install.disabled = false; button.disabled = false; progress.hidden = true; }
   };
   // The tray entry is the user's explicit request to install.
-  void listen('tray-update', () => { element('release-heading').scrollIntoView(); install.click(); }, { target: 'main' });
+  void listen('tray-update', () => { showTab('tab-about'); install.click(); }, { target: 'main' });
   void search(true);
   setInterval(() => void search(true), 6 * 60 * 60_000);
 }
