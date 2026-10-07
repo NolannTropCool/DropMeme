@@ -29,6 +29,12 @@ test('GIF picker unfurls arrive later, use actual animated media and deduplicate
   expect(catalog.add('channel', 'Discord', media)?.kind).toBe('video');
   expect(catalog.add('channel', 'Discord', extractDiscordMedia(updated)[0]!)).toBeUndefined();
 });
+test('Klipy GIF picker unfurls are kept as looping video', () => {
+  const url = 'https://static1.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4';
+  const media = extractDiscordMedia({ ...base, embeds: [makeEmbed({ type: EmbedType.GIFV, video: { url } })] });
+  expect(media).toEqual([{ url, name: 'animation.mp4', contentType: 'video/mp4', size: 0, sourceId: 'message:embed:0', loop: true }]);
+  expect(new MediaCatalog(randomBytes(32), 1024).add('channel', 'Discord', media[0]!)?.kind).toBe('video');
+});
 test('accepts Discord external image proxies but never forwards external HTML or YouTube players', () => {
   const media = extractDiscordMedia({ ...base, embeds: [
     makeEmbed({ type: EmbedType.Image, image: { url: 'https://example.com/test.gif', proxy_url: 'https://images-ext-2.discordapp.net/external/token/test.gif' } }),

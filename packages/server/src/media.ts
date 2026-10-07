@@ -16,10 +16,10 @@ const extensions: Record<string, string> = {
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mov: 'video/quicktime',
 };
 
-export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean }
+export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean; targetDeviceId?: string }
 export interface StoredMedia extends IncomingMedia {
   id: string; channelId: string; kind: MediaKind; author: string; createdAt: number;
-  bytes?: Buffer; text?: string; targetDeviceId?: string; animation?: boolean;
+  bytes?: Buffer; text?: string; animation?: boolean;
 }
 
 /** Only exact HTTPS media CDN hosts. Never fetch a message's arbitrary URL or an HTML player. */
@@ -28,6 +28,9 @@ export function isDiscordMediaUrl(value: string): boolean {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
     if (url.hostname === 'media.tenor.com') return /^\/[A-Za-z0-9_-]+\/[^/]+\.(gif|mp4|webm|webp)$/i.test(url.pathname);
+    // Klipy: GIF search and, reportedly, Discord's GIF picker. Layout inferred from /ii/<32 hex>/<2 hex>/<2 hex>/<name>.mp4;
+    // segments are not forced to hex, but dots are only allowed in the extension.
+    if (['static.klipy.com', 'static1.klipy.com', 'static2.klipy.com'].includes(url.hostname)) return !url.search && !url.hash && /^\/ii\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,16}\/[A-Za-z0-9_-]{1,16}\/[A-Za-z0-9_-]{1,128}\.(gif|mp4|webm|webp)$/.test(url.pathname);
     return ['cdn.discordapp.com', 'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net'].includes(url.hostname) &&
       (url.pathname.startsWith('/attachments/') || url.pathname.startsWith('/external/'));
   } catch { return false; }

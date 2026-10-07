@@ -10,12 +10,13 @@ Le bot reçoit les nouveaux messages via le Gateway Discord. Il diffuse les méd
 - Images, GIF et WebP animés, vidéos MP4/WebM, MOV convertis en MP4 sur le serveur, texte et audio MP3/OGG/WAV/M4A. Les images de liens passant par le proxy Discord sont aussi acceptées.
 - Écran, placement libre par glisser-déposer, dimensions, opacité et durées séparées de 2 à 120 secondes pour GIF, vidéos, images et texte. Son désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
 - Personnes connectées au même salon, pseudo local et envois de texte ou fichiers depuis l’application. Les envois directs demandent le consentement explicite du destinataire, désactivé par défaut. Ce pseudo identifie l’appareil connecté, sans vérification d’identité Discord.
+- Recherche de GIF Klipy et envoi direct au salon depuis l’application, si le serveur dispose d’une clé `GIF_API_KEY`.
 - Plusieurs GIF simultanés en option, désactivée par défaut : placement aléatoire ou jusqu’à huit zones personnalisées sur vos écrans. Une fenêtre de rendu est partagée par écran ; les vidéos ordinaires restent dans la file.
 - File FIFO limitée, déduplication, filtres par format, pause, passage au média suivant et aperçu. La pause ignore les nouveaux médias ; elle ne les rejoue pas ensuite. Les médias en attente depuis plus de cinq minutes sont abandonnés.
 - Zone de notification, ouverture avec Windows, reconnexion automatique. Les réglages sont enregistrés localement et le jeton dans le gestionnaire d’identifiants Windows.
 - SQLite local : aucun Redis, PostgreSQL ou service de compte utilisateur à exploiter.
 
-Un appareil est abonné à **un salon à la fois**. Pour changer de salon, désabonnez-le puis connectez-le avec une nouvelle invitation. Seuls les nouveaux messages sont transmis, sans historique ni téléchargement lorsque personne ne consulte un média. Les GIF en pièce jointe et ceux du sélecteur Discord/Tenor sont pris en charge, y compris leurs embeds ajoutés après l’envoi. Les animations Tenor encodées en MP4 sont bouclées et suivent le filtre **Images & GIF**, pas le filtre Vidéos. Les pages externes et les lecteurs YouTube/Giphy ne sont jamais exécutés.
+Un appareil est abonné à **un salon à la fois**. Pour changer de salon, désabonnez-le puis connectez-le avec une nouvelle invitation. Seuls les nouveaux messages sont transmis, sans historique ni téléchargement lorsque personne ne consulte un média. Les GIF en pièce jointe et ceux du sélecteur Discord (Tenor ou Klipy) sont pris en charge, y compris leurs embeds ajoutés après l’envoi. Les animations Tenor encodées en MP4 sont bouclées et suivent le filtre **Images & GIF**, pas le filtre Vidéos. Les pages externes et les lecteurs YouTube/Giphy ne sont jamais exécutés.
 
 ## Préparer Discord
 
@@ -38,6 +39,8 @@ chmod 600 .env
 Renseignez `.env` dans un éditeur : `DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `ALLOWED_CHANNEL_IDS` et `PUBLIC_URL`. `PUBLIC_URL` est l’adresse HTTPS routée par Traefik, sans chemin. Ne commitez jamais ce fichier. Avec Coolify, renseignez ces valeurs dans les variables du service, attribuez son domaine HTTPS au service `server` et sélectionnez le port cible `3000`. Avec un Traefik autonome, rattachez `server` au réseau Docker existant du proxy et configurez sa route vers ce port ; le nom de ce réseau dépend de votre installation.
 
 `JOIN_KEY` est optionnel : sans cette variable, seul le code Discord permet de s’abonner. Pour autoriser l’abonnement par ID, générez une clé avec `openssl rand -hex 32`, renseignez-la dans `.env` et partagez-la uniquement avec les abonnés autorisés. Elle donne accès à **tous les salons de la liste autorisée** ; utilisez les codes pour déléguer l’accès salon par salon.
+
+`GIF_API_KEY` est optionnel : il active la recherche de GIF [Klipy](https://klipy.com/developers) et leur envoi au salon depuis l’application. Sans cette variable, la recherche est désactivée et l’application ne la propose pas. Le serveur interroge l’API Klipy pour le compte des appareils puis relaie les médias via `/v1/media` : cet usage côté serveur et ce re-hébergement nécessitent l’**accord écrit de Klipy** (developers@klipy.com) et une **clé de production**. La clé de test est limitée à 100 requêtes par heure ; les recherches sont mises en cache 5 minutes et limitées à 60 par minute et par appareil. La clé figure dans le chemin des requêtes Klipy : elle n’est jamais journalisée ni renvoyée aux clients. Chaque appareil est identifié auprès de Klipy par une empreinte HMAC non réversible de son identifiant.
 
 ```sh
 docker compose up -d --build

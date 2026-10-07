@@ -68,13 +68,21 @@ export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
   // No protocol bump: 0.2 clients drop unknown events, while a 0.2 server rejects protocol 3 logins.
   z.object({ type: z.literal('retract'), ids: z.array(z.string().min(1).max(100)).min(1).max(2000) }),
-  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional() }),
+  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), gifSearch: z.boolean().optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof serverEventSchema>;
 export const textRequestSchema = z.object({ text: z.string().trim().min(1).max(2000), recipientId: z.string().uuid().optional() }).strict();
+export const gifId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+export const gifSearchRequestSchema = z.object({ q: z.string().trim().min(2).max(100), page: z.coerce.number().int().min(1).max(20).default(1) });
+export const gifRequestSchema = z.object({ id: gifId, recipientId: z.string().uuid().optional() }).strict();
+const httpsUrl = z.url({ protocol: /^https$/ });
+export const gifResultSchema = z.object({ id: gifId, previewUrl: httpsUrl, url: httpsUrl, width: z.number().int().positive(), height: z.number().int().positive() });
+export type GifResult = z.infer<typeof gifResultSchema>;
+export const gifSearchResponseSchema = z.object({ results: z.array(gifResultSchema).max(50), hasNext: z.boolean() });
+export type GifSearchResponse = z.infer<typeof gifSearchResponseSchema>;
 export function isAnimation(media: Pick<MediaEvent, 'kind' | 'name' | 'loop' | 'animation'>): boolean {
   if (media.animation !== undefined) return media.animation;
   return media.animation === true || (media.kind === 'video' && media.loop === true) || (media.kind === 'image' && /\.(gif|webp)$/i.test(media.name));
