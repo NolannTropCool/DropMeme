@@ -35,6 +35,15 @@ describe('bounded media queue', () => {
     expect(queue.enqueue({ ...event('gif-disabled', 'video'), loop: true })).toBe(false);
     expect(queue.enqueue(event('video', 'video'))).toBe(true);
   });
+  test('retracted media never plays and the displayed one is handed back for hiding', () => {
+    const display = vi.fn(); const queue = new MediaQueue(defaultSettings, display);
+    queue.enqueue(event('a')); queue.enqueue(event('b')); queue.enqueue(event('c'));
+    expect(queue.retract(['a', 'b', 'unknown'])).toEqual(['a']);
+    queue.complete('a');
+    expect(queue.currentIds()).toEqual(['c']);
+    expect(queue.enqueue(event('b'))).toBe(false);
+    expect(display.mock.calls.map(call => call[0].id)).toEqual(['a', 'c']);
+  });
   test('plays FIFO, ignores duplicates and stale completion callbacks', () => {
     const display = vi.fn(); const queue = new MediaQueue(defaultSettings, display);
     expect(queue.enqueue(event('a'))).toBe(true);

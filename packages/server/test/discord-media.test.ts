@@ -10,6 +10,15 @@ test('extracts GIF attachments without flattening animation', () => {
   const file = { id: 'attachment', url: 'https://cdn.discordapp.com/attachments/1/2/animated.gif', name: 'animated.gif', contentType: 'image/gif', size: 10 };
   expect(extractDiscordMedia({ ...base, attachments: new Map([[file.id, file]]) })).toEqual([{ url: file.url, name: file.name, contentType: file.contentType, size: 10, sourceId: 'message:attachment' }]);
 });
+test('never forwards spoilered attachments or unfurls of spoilered links', () => {
+  const file = (name: string) => ({ id: name, url: `https://cdn.discordapp.com/attachments/1/2/${name}`, name, contentType: 'image/png', size: 10 });
+  const attachments = new Map([['a', file('SPOILER_secret.png')], ['b', file('public.png')]]);
+  expect(extractDiscordMedia({ ...base, attachments }).map(media => media.name)).toEqual(['public.png']);
+  const embeds = [makeEmbed({ type: EmbedType.GIFV, video: { url: 'https://media.tenor.com/idAAAAC/cat.mp4' } })];
+  expect(extractDiscordMedia({ ...base, embeds, content: '||https://tenor.com/view/cat||' })).toEqual([]);
+  expect(extractDiscordMedia({ ...base, embeds, content: 'https://tenor.com/view/cat' })).toHaveLength(1);
+  expect(extractDiscordMedia({ ...base, embeds, content: 'a || b' })).toHaveLength(1);
+});
 test('GIF picker unfurls arrive later, use actual animated media and deduplicate repeated updates', () => {
   const catalog = new MediaCatalog(randomBytes(32), 1024);
   expect(extractDiscordMedia(base)).toEqual([]);
@@ -19,6 +28,12 @@ test('GIF picker unfurls arrive later, use actual animated media and deduplicate
   expect(media).toMatchObject({ url, name: 'animation.mp4', contentType: 'video/mp4', loop: true });
   expect(catalog.add('channel', 'Discord', media)?.kind).toBe('video');
   expect(catalog.add('channel', 'Discord', extractDiscordMedia(updated)[0]!)).toBeUndefined();
+});
+test('Klipy GIF picker unfurls are kept as looping video', () => {
+  const url = 'https://static1.klipy.com/ii/935d7ab9d8c6202580a668421940ec81/14/af/La0HaAzw.mp4';
+  const media = extractDiscordMedia({ ...base, embeds: [makeEmbed({ type: EmbedType.GIFV, video: { url } })] });
+  expect(media).toEqual([{ url, name: 'animation.mp4', contentType: 'video/mp4', size: 0, sourceId: 'message:embed:0', loop: true }]);
+  expect(new MediaCatalog(randomBytes(32), 1024).add('channel', 'Discord', media[0]!)?.kind).toBe('video');
 });
 test('accepts Discord external image proxies but never forwards external HTML or YouTube players', () => {
   const media = extractDiscordMedia({ ...base, embeds: [

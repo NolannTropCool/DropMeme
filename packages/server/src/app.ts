@@ -3,12 +3,13 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
+import { createHmac } from 'node:crypto';
 import { z } from 'zod';
-import { appVersion, pairingRequestSchema, profileSchema, textRequestSchema, type ServerEvent, type Profile } from '@dropmeme/shared';
+import { appVersion, gifId, gifRequestSchema, gifSearchRequestSchema, pairingRequestSchema, profileSchema, textRequestSchema, type GifResult, type GifSearchResponse, type ServerEvent, type Profile } from '@dropmeme/shared';
 import type { WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Store, equalSecret, type Device } from './store.js';
-import { MediaCatalog, classifyMedia, type IncomingMedia, type StoredMedia } from './media.js';
+import { MediaCatalog, classifyMedia, isDiscordMediaUrl, type IncomingMedia, type StoredMedia } from './media.js';
 import { convertMov, sniffContentType } from './convert.js';
 
 export interface DiscordBridge {
@@ -21,15 +22,21 @@ export interface Application {
   publish(channelId: string, author: string, input: IncomingMedia): boolean;
   publishStatus(): void;
   publishText(channelId: string, author: string, text: string, sourceId?: string): boolean;
+  retract(channelId: string, messageIds: string[]): void;
 }
 const origins = new Set(['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost', 'http://localhost:1420']);
 const authenticateSchema = z.object({ type: z.literal('authenticate'), token: z.string().min(32).max(128), profile: profileSchema.optional(), protocol: z.number().int().min(1).max(2).optional(), version: z.string().max(32).optional() }).strict();
 const updateProfileSchema = z.object({ type: z.literal('profile'), profile: profileSchema }).strict();
 interface ConnectedDevice extends Device { profile: Profile; protocol: number; version: string }
+const klipyFile = z.object({ url: z.string(), width: z.number().int().positive(), height: z.number().int().positive(), size: z.number().int().nonnegative().optional() });
+const klipyItem = z.object({ slug: gifId, type: z.string(), file: z.record(z.string(), z.record(z.string(), z.unknown())) });
+const klipyPage = z.object({ result: z.literal(true), data: z.object({ data: z.array(z.unknown()).max(100), has_next: z.boolean().optional() }) });
+type KlipyItem = z.infer<typeof klipyItem>;
 
 export async function createApplication(config: Config, discord: DiscordBridge, options: {
   logger?: boolean;
   fetchMedia?: typeof fetch;
+  fetchGifs?: typeof fetch;
 } = {}): Promise<Application> {
   const app = Fastify({
     logger: options.logger === false ? false : {
@@ -51,6 +58,9 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
   let cacheBytes = 0;
   const maxCacheBytes = 64 * 1024 * 1024;
   const fetchMedia = options.fetchMedia ?? fetch;
+  const fetchGifs = options.fetchGifs ?? fetch;
+  const searchTimes = new Map<string, number[]>();
+  const gifSearches = new Map<string, { result: Promise<GifSearchResponse>; expires: number }>();
 
   await app.register(cors, { origin: (origin, cb) => cb(null, !origin || origins.has(origin)), methods: ['GET', 'POST', 'DELETE'] });
   await app.register(rateLimit, { max: 240, timeWindow: '1 minute' });
@@ -90,11 +100,48 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     return device && config.allowedChannelIds.has(device.channelId) ? [...peers.entries()].find(([socket, peer]) => socket.readyState === 1 && peer.id === device.id && peer.protocol >= 2)?.[1] : undefined;
   };
   const targetAllowed = (sender: ConnectedDevice, recipientId: string | undefined) => !recipientId || [...peers.entries()].some(([socket, peer]) => socket.readyState === 1 && peer.id === recipientId && peer.channelId === sender.channelId && peer.protocol >= 2 && peer.profile.acceptDirect);
-  const reserveSend = (deviceId: string) => {
-    for (const [id, times] of sendTimes) if (!times.some(time => Date.now() - time < 60_000)) sendTimes.delete(id);
-    const times = (sendTimes.get(deviceId) ?? []).filter(time => Date.now() - time < 60_000);
-    if (times.length >= 20) return false;
-    times.push(Date.now()); sendTimes.set(deviceId, times); return true;
+  const reserve = (log: Map<string, number[]>, deviceId: string, max: number) => {
+    for (const [id, times] of log) if (!times.some(time => Date.now() - time < 60_000)) log.delete(id);
+    const times = (log.get(deviceId) ?? []).filter(time => Date.now() - time < 60_000);
+    if (times.length >= max) return false;
+    times.push(Date.now()); log.set(deviceId, times); return true;
+  };
+  const reserveSend = (deviceId: string) => reserve(sendTimes, deviceId, 20);
+
+  // The API key is part of the path: never log or return this URL, nor errors that could embed it.
+  const klipy = async (path: string, params: Record<string, string>) => {
+    const response = await fetchGifs(`https://api.klipy.com/api/v1/${config.gifApiKey}/gifs/${path}?${new URLSearchParams(params)}`, { redirect: 'error', signal: AbortSignal.timeout(5000), headers: { accept: 'application/json' } });
+    if (path === 'items' && response.status === 404) return { items: [], hasNext: false };
+    if (!response.ok) { app.log.warn({ status: response.status }, 'Klipy request failed'); throw new Error('Klipy indisponible'); }
+    const page = klipyPage.parse(await response.json()).data;
+    // Klipy's terms: keep its order; only drop ads and anything outside the CDN whitelist.
+    return { items: page.data.flatMap(value => { const item = klipyItem.safeParse(value); return item.success && item.data.type === 'gif' ? [item.data] : []; }), hasNext: page.has_next ?? false };
+  };
+  const pickFile = (item: KlipyItem, candidates: string[]) => {
+    for (const candidate of candidates) {
+      const [size, format] = candidate.split('.') as [string, string];
+      const file = klipyFile.safeParse(item.file[size]?.[format]);
+      if (file.success && isDiscordMediaUrl(file.data.url) && (file.data.size ?? 0) <= config.maxMediaBytes) return file.data;
+    }
+  };
+  const toResult = (item: KlipyItem): GifResult | undefined => {
+    const media = pickFile(item, ['md.mp4', 'hd.mp4', 'sm.mp4', 'md.webp', 'md.gif']);
+    const preview = pickFile(item, ['xs.webp', 'sm.webp', 'xs.mp4', 'sm.mp4', 'xs.gif', 'sm.gif', 'md.webp']);
+    return media && preview ? { id: item.slug, previewUrl: preview.url, url: media.url, width: media.width, height: media.height } : undefined;
+  };
+  const searchGifs = (q: string, page: number, deviceId: string) => {
+    for (const [key, entry] of gifSearches) if (entry.expires <= Date.now()) gifSearches.delete(key);
+    const key = `${page}:${q}`;
+    const cached = gifSearches.get(key);
+    if (cached) return cached.result;
+    if (gifSearches.size >= 200) gifSearches.delete(gifSearches.keys().next().value!);
+    // Stable per device but not reversible to its id.
+    const customer = createHmac('sha256', store.signingKey).update(`klipy:${deviceId}`).digest('hex').slice(0, 32);
+    const result = klipy('search', { q, per_page: '24', page: String(page), locale: 'fr', customer_id: customer, content_filter: 'medium', format_filter: 'mp4,webp' })
+      .then(({ items, hasNext }) => ({ results: items.flatMap(item => toResult(item) ?? []), hasNext }));
+    gifSearches.set(key, { result, expires: Date.now() + 5 * 60_000 });
+    result.catch(() => { if (gifSearches.get(key)?.result === result) gifSearches.delete(key); });
+    return result;
   };
 
   app.post('/v2/send/text', { bodyLimit: 12_000 }, async (request, reply) => {
@@ -132,6 +179,40 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!current || !targetAllowed(current, target)) return reply.code(403).send({ error: 'L’envoi n’est plus autorisé.' });
     const media = catalog.addUpload(sender.channelId, sender.profile.name, bytes, name, contentType, target);
     if (!media) return reply.code(413).send({ error: 'Fichier trop volumineux.' });
+    dispatch(media); return reply.code(201).send({ id: media.id });
+  });
+
+  app.get('/v2/gifs/search', async (request, reply) => {
+    const sender = activeSender(request.headers.authorization);
+    if (!sender) return reply.code(401).send({ error: 'Connectez cet appareil au salon avant de rechercher.' });
+    if (!config.gifApiKey) return reply.code(503).send({ error: 'La recherche de GIF n’est pas activée sur ce serveur.' });
+    const query = gifSearchRequestSchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: 'Recherche invalide : saisissez de 2 à 100 caractères.' });
+    if (!reserve(searchTimes, sender.id, 60)) return reply.code(429).send({ error: 'Limite de 60 recherches par minute atteinte.' });
+    try { return await searchGifs(query.data.q.toLowerCase(), query.data.page, sender.id); }
+    catch { return reply.code(502).send({ error: 'La recherche de GIF est indisponible pour le moment.' }); }
+  });
+
+  app.post('/v2/send/gif', async (request, reply) => {
+    const sender = activeSender(request.headers.authorization);
+    if (!sender) return reply.code(401).send({ error: 'Connectez cet appareil au salon avant d’envoyer.' });
+    if (!config.gifApiKey) return reply.code(503).send({ error: 'La recherche de GIF n’est pas activée sur ce serveur.' });
+    const body = gifRequestSchema.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: 'GIF ou destinataire invalide.' });
+    const { id, recipientId } = body.data;
+    if (!targetAllowed(sender, recipientId)) return reply.code(403).send({ error: 'Cette personne est déconnectée ou refuse les envois directs.' });
+    if (!reserveSend(sender.id)) return reply.code(429).send({ error: 'Limite de 20 envois par minute atteinte.' });
+    // Resolve the slug server-side: a client-supplied URL would allow SSRF.
+    let gif: GifResult | undefined;
+    try { const item = (await klipy('items', { slugs: id })).items.find(value => value.slug === id); gif = item && toResult(item); }
+    catch { return reply.code(502).send({ error: 'Le GIF est indisponible pour le moment.' }); }
+    if (!gif) return reply.code(404).send({ error: 'GIF introuvable.' });
+    const current = activeSender(request.headers.authorization);
+    if (!current || !targetAllowed(current, recipientId)) return reply.code(403).send({ error: 'L’envoi n’est plus autorisé.' });
+    const extension = new URL(gif.url).pathname.split('.').at(-1)!;
+    // Like Tenor GIFs in Discord embeds: a looping MP4 is displayed as an animation.
+    const media = catalog.add(sender.channelId, sender.profile.name, { url: gif.url, name: `animation.${extension}`, contentType: null, size: 0, ...(extension === 'mp4' ? { loop: true } : {}), ...(recipientId ? { targetDeviceId: recipientId } : {}) });
+    if (!media) return reply.code(404).send({ error: 'GIF introuvable.' });
     dispatch(media); return reply.code(201).send({ id: media.id });
   });
 
@@ -193,7 +274,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
         if ([...peers.values()].some(peer => peer.id === device.id)) { socket.close(4009, 'Appareil déjà connecté'); return; }
         clearTimeout(timeout);
         peers.set(socket, { ...device, profile: parsed.success && parsed.data.profile ? parsed.data.profile : { name: `Appareil ${device.id.slice(0, 6)}`, acceptDirect: false }, protocol: parsed.success ? parsed.data.protocol ?? 1 : 1, version: parsed.success ? parsed.data.version ?? '0.1' : '0.1' });
-        send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion });
+        send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, gifSearch: !!config.gifApiKey, maxMediaBytes: config.maxMediaBytes });
         publishPresence(device.channelId);
       } catch { socket.close(1008, 'Message invalide'); }
     });
@@ -307,6 +388,12 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
       const media = catalog.addText(channelId, author, text, undefined, sourceId);
       if (!media) return false;
       dispatch(media); return true;
+    },
+    retract(channelId, messageIds) {
+      const ids = messageIds.flatMap(id => catalog.retract(channelId, id));
+      if (!ids.length) return;
+      for (const id of ids) { const cached = cache.get(id); if (cached) { cacheBytes -= cached.bytes.length; cache.delete(id); } }
+      for (const [socket, device] of peers) if (device.channelId === channelId && device.protocol >= 2) send(socket, { type: 'retract', ids });
     },
     publishStatus() { for (const socket of peers.keys()) send(socket, { type: 'status', discordConnected: discord.connected() }); },
   };

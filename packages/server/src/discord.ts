@@ -1,5 +1,5 @@
 import { Client, Events, GatewayIntentBits, MessageFlags, Options, Partials, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, type Message, type PartialMessage } from 'discord.js';
-import { extractDiscordMedia } from './discord-media.js';
+import { extractDiscordMedia, hasSpoiler } from './discord-media.js';
 import type { Config } from './config.js';
 import type { Application, DiscordBridge } from './app.js';
 
@@ -49,7 +49,7 @@ export function createDiscordClient(): Client {
 
 export class DiscordBot implements DiscordBridge {
   private application: Application | undefined;
-  private readonly authors = new Map<string, { name: string; time: number }>();
+  private readonly authors = new Map<string, { name: string; time: number; spoiler: boolean }>();
 
   constructor(private readonly config: Config, private readonly client: Client = createDiscordClient()) {}
   connected(): boolean { return this.client.isReady(); }
@@ -70,6 +70,8 @@ export class DiscordBot implements DiscordBridge {
     this.client.on(Events.ShardResume, () => application.publishStatus());
     this.client.on(Events.ClientReady, () => application.publishStatus());
     this.client.on(Events.MessageCreate, message => this.forward(message));
+    this.client.on(Events.MessageDelete, message => this.retract(message.guildId, message.channelId, [message.id]));
+    this.client.on(Events.MessageBulkDelete, (messages, channel) => this.retract(channel.guildId, channel.id, [...messages.keys()]));
     // With no history cache, delayed embeds arrive as PartialMessage objects. Do not fetch history.
     this.client.on(Events.MessageUpdate, (_before, message) => this.forward(message));
     this.client.on(Events.InteractionCreate, async interaction => {
@@ -103,12 +105,19 @@ export class DiscordBot implements DiscordBridge {
     if (Date.now() - message.createdTimestamp > 5 * 60_000) return;
     for (const [id, value] of this.authors) if (Date.now() - value.time > 5 * 60_000) this.authors.delete(id);
     const author = message.member?.displayName ?? message.author?.displayName ?? this.authors.get(message.id)?.name ?? 'Discord';
-    if (message.author) this.authors.set(message.id, { name: author, time: Date.now() });
+    // Partial embed updates may omit content: keep the spoiler flag seen on creation.
+    const spoiler = hasSpoiler(message.content) || !!this.authors.get(message.id)?.spoiler;
+    if (message.author) this.authors.set(message.id, { name: author, time: Date.now(), spoiler });
     if (this.authors.size > 500) this.authors.delete(this.authors.keys().next().value!);
-    for (const media of extractDiscordMedia(message)) this.application.publish(message.channelId, author, media);
-    if (message.content?.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(message.content)) {
+    for (const media of extractDiscordMedia(message, spoiler)) this.application.publish(message.channelId, author, media);
+    if (!spoiler && message.content?.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(message.content)) {
       this.application.publishText(message.channelId, author, message.content.slice(0, 2000), `${message.id}:text`);
     }
+  }
+
+  private retract(guildId: string | null, channelId: string, messageIds: string[]): void {
+    if (!this.application || guildId !== this.config.guildId || !this.config.allowedChannelIds.has(channelId)) return;
+    this.application.retract(channelId, messageIds);
   }
 
   async stop(): Promise<void> { await this.client.destroy(); }

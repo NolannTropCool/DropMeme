@@ -3,6 +3,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseSchema, normalizeServerUrl, type MediaEvent } from '@dropmeme/shared';
 import { Social } from './social.js';
+import { QuickSend, shortcutFromKeyboard, shortcutLabel } from './quick-send-host.js';
+import { Favorites } from './favorites.js';
 import { initializeUpdates } from './updates.js';
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
@@ -10,6 +12,7 @@ import { Connection } from './connection.js';
 import { placeOverlay } from './placement-controller.js';
 import { settingsForMonitor } from './geometry.js';
 import { readPreferences, writePreferences, readToken, saveToken, clearToken, type Preferences } from './preferences.js';
+import './tabs.js';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -25,6 +28,9 @@ let placing = false;
 let connected = false;
 const display = new Display();
 const social = new Social(() => preferences);
+const favorites = new Favorites(() => quickSend.push());
+const quickSend = new QuickSend(() => preferences, favorites);
+const setOnline = (online: boolean, features?: Parameters<QuickSend['setOnline']>[1]) => { social.setOnline(online); quickSend.setOnline(online, features); };
 const queue = new MediaQueue(preferences.settings, media => {
   void display.show(media, preferences.settings).catch(async error => {
     message(error instanceof Error ? error.message : 'Affichage impossible.'); await display.hide(media.id); queue.complete(media.id);
@@ -33,8 +39,14 @@ const queue = new MediaQueue(preferences.settings, media => {
   $('queue-status').textContent = paused ? 'Réception en pause' : `${count ? `${count} média(s) à l’écran · ` : ''}${pending ? `${pending} en attente` : 'Aucun média en attente'}`;
 });
 
+let live = { text: 'Déconnecté', online: false };
 function status(text: string, online = false): void {
-  $('status').textContent = text; $('status-dot').classList.toggle('online', online);
+  live = { text, online };
+  // Pausing keeps the connection: the header says so until resumed or disconnected.
+  const pause = paused && connected;
+  $('status').textContent = pause ? 'En pause' : text;
+  const dot = $('status-dot').classList;
+  dot.toggle('online', online && !pause); dot.toggle('paused', pause); dot.toggle('warning', !pause && text === 'Discord indisponible');
 }
 
 let saves: Promise<void> = Promise.resolve();
@@ -46,7 +58,7 @@ function save(): Promise<void> {
 
 function subscriptionUi(): void {
   $('connect-form').hidden = !!preferences.subscription;
-  $('subscription').hidden = !preferences.subscription;
+  $('subscription').hidden = $('pause').hidden = !preferences.subscription;
   $('channel-name').textContent = preferences.subscription?.channelName ?? '';
   $('channel-id').textContent = preferences.subscription?.channelId ?? '';
 }
@@ -56,15 +68,22 @@ function startConnection(token: string): void {
   connection = new Connection(preferences.server, token, event => {
     if (event.type === 'ready') {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
-      social.setOnline(event.protocol === 2);
+      setOnline(event.protocol === 2, event);
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
-    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
+    else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId) {
+      // Received even when paused or filtered out: it can still become a favorite.
+      favorites.receive(event);
+      if (!previewing && !placing) queue.enqueue(event);
+    } else if (event.type === 'retract') {
+      favorites.retract(event.ids);
+      for (const id of queue.retract(event.ids)) void display.hide(id).then(() => queue.complete(id));
+    }
     else if (event.type === 'presence') social.setPeers(event.peers);
     else if (event.type === 'error') message(event.message);
   }, state => {
     connected = false;
-    social.setOnline(false);
+    setOnline(false);
     status(state === 'connecting' ? 'Connexion…' : state === 'offline' ? 'Reconnexion…' : 'Déconnecté');
     if (state === 'expired') message('Cet abonnement a été révoqué. Désabonnez-vous puis utilisez une nouvelle invitation.');
     if (state === 'duplicate') message('Cet appareil est déjà connecté dans une autre instance.');
@@ -115,7 +134,7 @@ $('disconnect').onclick = async () => {
       if (!response.ok && response.status !== 401) throw new Error('Le serveur n’a pas confirmé le désabonnement.');
     }
     connection?.stop(); connection = undefined; connected = false;
-    social.setOnline(false);
+    setOnline(false);
     queue.reset(); await display.hide(); await clearToken();
     preferences.subscription = undefined; await save(); subscriptionUi(); status('Déconnecté'); message('');
   } catch { message('Le serveur est inaccessible. Le jeton est conservé pour pouvoir révoquer l’abonnement au prochain essai.'); }
@@ -124,7 +143,7 @@ $('disconnect').onclick = async () => {
 
 $('pause').onclick = () => {
   paused = !paused; queue.setPaused(paused); previewing = false; previews.clear();
-  void display.hide(); $('pause').textContent = paused ? 'Reprendre' : 'Mettre en pause';
+  void display.hide(); $('pause').textContent = paused ? 'Reprendre' : 'Mettre en pause'; status(live.text, live.online);
 };
 $('skip').onclick = async () => {
   const id = queue.currentId() ?? previews.values().next().value;
@@ -190,6 +209,7 @@ function renderSettings(): void {
   $('volume-value').textContent = `${preferences.settings.volume}%`;
   input('volume').disabled = !preferences.settings.sound;
   input('displayName').value = preferences.settings.displayName;
+  input('quickSendShortcut').value = shortcutLabel(preferences.settings.quickSendShortcut);
   $<HTMLSelectElement>('multiPlacement').value = preferences.settings.multiPlacement;
   $('multi-fields').hidden = !preferences.settings.multiDisplay;
   $('zones-fields').hidden = preferences.settings.multiPlacement !== 'zones';
@@ -235,6 +255,18 @@ input('autostart').onchange = async () => {
   try { if (input('autostart').checked) await enable(); else await disable(); }
   catch { input('autostart').checked = !input('autostart').checked; message('Impossible de modifier le démarrage automatique.'); }
 };
+input('quickSendShortcut').onkeydown = async event => {
+  if (event.key === 'Tab') return;
+  event.preventDefault();
+  try {
+    const shortcut = shortcutFromKeyboard(event);
+    if (!shortcut) return;
+    if (!isTauri()) throw new Error('Le raccourci global est disponible dans l’application desktop.');
+    await quickSend.bindShortcut(shortcut);
+    preferences.settings = { ...preferences.settings, quickSendShortcut: shortcut }; renderSettings(); await save();
+    $('shortcut-status').textContent = `Raccourci enregistré : ${shortcutLabel(shortcut)}.`;
+  } catch (error) { $('shortcut-status').textContent = error instanceof Error ? error.message : 'Raccourci impossible.'; }
+};
 
 async function initialize(): Promise<void> {
   try { preferences = await readPreferences(); }
@@ -258,9 +290,13 @@ async function initialize(): Promise<void> {
   if (![...$<HTMLSelectElement>('monitor').options].some(option => option.value === preferences.settings.monitor)) preferences.settings.monitor = 'primary';
   renderSettings(); subscriptionUi();
   initializeUpdates();
+  try { await favorites.initialize(); }
+  catch { message('Les favoris ne peuvent pas être chargés.'); }
   if (isTauri()) {
     input('autostart').checked = await isEnabled();
     await getCurrentWindow().onCloseRequested(event => { event.preventDefault(); void getCurrentWindow().hide(); });
+    try { await quickSend.initialize(); await quickSend.bindShortcut(preferences.settings.quickSendShortcut); }
+    catch (error) { $('shortcut-status').textContent = error instanceof Error ? error.message : 'Envoi rapide indisponible.'; }
   }
   const token = await readToken();
   if (preferences.subscription && token) startConnection(token);

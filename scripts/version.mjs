@@ -35,6 +35,7 @@ for (const workspace of ['shared', 'server', 'desktop']) if (lock.packages[`pack
 if (mode === '--check') {
   const notes = await readFile('CHANGELOG.md', 'utf8');
   const embedded = await readFile('packages/desktop/src/changelog.ts', 'utf8');
-  if (!notes.includes(`## ${version}\n`) || !embedded.includes(`version: '${version}'`)) throw new Error('Ajoutez cette version aux deux changelogs avant de publier.');
+  // Windows checkouts use CRLF: compare whole lines, not '\n'-terminated text.
+  if (!notes.split(/\r?\n/).includes(`## ${version}`) || !embedded.includes(`version: '${version}'`)) throw new Error('Ajoutez cette version aux deux changelogs avant de publier.');
 }
 console.log(`DropMeme ${version}${mode === '--check' ? ' : versions cohérentes.' : ' : ajoutez les nouveautés au changelog avant de publier.'}`);

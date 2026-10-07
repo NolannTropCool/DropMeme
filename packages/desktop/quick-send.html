@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DropMeme · Envoi rapide</title></head><body>
+  <main class="launcher">
+    <form id="quick-form">
+      <input id="query" role="combobox" aria-autocomplete="list" aria-controls="results" aria-expanded="false" autocomplete="off" spellcheck="false" maxlength="2000" aria-label="Message à envoyer ou GIF à rechercher" autofocus />
+      <button id="received-button" class="browse" type="button" aria-controls="received" aria-expanded="false" title="Ajouter un média reçu aux favoris">Reçus</button>
+      <button id="browse-button" class="browse" type="button">Parcourir</button>
+      <input id="browse" type="file" hidden />
+    </form>
+    <p id="quick-status" role="status"></p>
+    <section id="file-preview" class="file-preview" aria-label="Fichier à envoyer" hidden>
+      <div id="file-thumb" class="file-thumb"></div>
+      <div><strong id="file-name"></strong><p id="file-size"></p><button id="file-star" class="browse" type="button">☆ Ajouter aux favoris</button></div>
+    </section>
+    <section id="received" class="received" aria-labelledby="received-title" hidden>
+      <h2 id="received-title" class="section-title">Ajouter un média reçu aux favoris</h2>
+      <p id="received-empty">Aucune image, aucun GIF ni aucune vidéo reçus depuis le lancement de DropMeme.</p>
+      <ul id="received-list"></ul>
+    </section>
+    <div id="picks" class="picks">
+      <h2 id="favorites-title" class="section-title" hidden>Favoris</h2>
+      <ul id="favorites" class="grid" role="listbox" aria-labelledby="favorites-title" hidden></ul>
+      <h2 id="results-title" class="section-title" aria-hidden="true" hidden>GIF KLIPY</h2>
+      <ul id="results" class="grid" role="listbox" aria-label="GIF Klipy" hidden></ul>
+      <button id="more" class="more" type="button" hidden>Plus de résultats</button>
+    </div>
+    <footer id="hint"></footer>
+    <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  </main><script type="module" src="/src/quick-send.ts"></script>
+</body></html>

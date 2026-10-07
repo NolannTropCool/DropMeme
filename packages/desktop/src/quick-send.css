@@ -1,0 +1,42 @@
+:root { font-family: "Segoe UI", sans-serif; color: #e8e8e6; background: transparent; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+.launcher { display: flex; flex-direction: column; gap: 10px; height: 100%; padding: 14px; border: 1px solid #39493d; border-radius: 10px; background: #141615; user-select: none; }
+#quick-form { display: flex; gap: 8px; }
+#query { flex: 1; min-width: 0; font: inherit; font-size: 18px; color: #f2f3ef; background: #1b1e1c; border: 1px solid #373d38; border-radius: 7px; padding: 12px 14px; outline: none; }
+#query:focus { border-color: #b2d9ba; }
+#query:disabled { opacity: .5; }
+p { margin: 0; font-size: 12px; color: #a3aaa4; }
+p:empty { display: none; }
+.picks, .received { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; scrollbar-width: thin; }
+.picks[hidden], .received[hidden] { display: none; }
+.section-title { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: #a3aaa4; }
+.grid { flex-shrink: 0; margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(5, 1fr); grid-auto-rows: 96px; gap: 6px; }
+.grid[hidden] { display: none; }
+.grid li { position: relative; overflow: hidden; border: 2px solid transparent; border-radius: 6px; background: #1b1e1c; cursor: pointer; }
+.grid li:hover { border-color: #475249; }
+.grid li[aria-selected=true] { border-color: #b2d9ba; }
+.grid img, .grid video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.star { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; color: #e8e8e6; background: #141615cc; border: 1px solid #373d38; border-radius: 5px; cursor: pointer; opacity: 0; }
+.grid li:hover .star, .grid li[aria-selected=true] .star, .star[aria-pressed=true] { opacity: 1; }
+.star[aria-pressed=true] { color: #b2d9ba; }
+#file-star { margin-top: 10px; padding: 6px 12px; }
+#received-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+#received-list li { display: flex; align-items: center; gap: 12px; padding: 6px; border: 1px solid #262b27; border-radius: 7px; font-size: 13px; }
+#received-list span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#received-list img, #received-list video { width: 72px; height: 54px; flex-shrink: 0; object-fit: cover; border-radius: 5px; background: #1b1e1c; }
+#received-list .browse { padding: 7px 12px; }
+.browse { flex-shrink: 0; font: inherit; font-size: 13px; color: #e8e8e6; background: #1b1e1c; border: 1px solid #373d38; border-radius: 7px; padding: 0 14px; cursor: pointer; }
+.browse:hover:not(:disabled), .browse:focus-visible { border-color: #b2d9ba; outline: none; }
+.browse:disabled { opacity: .5; cursor: default; }
+.file-preview { flex: 1; min-height: 0; display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px dashed #475249; border-radius: 8px; }
+.file-preview[hidden] { display: none; }
+.file-preview strong { display: block; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.file-thumb { flex-shrink: 0; width: 180px; height: 100%; max-height: 180px; display: grid; place-items: center; border-radius: 6px; background: #1b1e1c; overflow: hidden; }
+.file-thumb img, .file-thumb video { max-width: 100%; max-height: 100%; object-fit: contain; }
+.more { align-self: center; font: inherit; font-size: 12px; color: #a3aaa4; background: transparent; border: 1px solid #373d38; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.more:hover { color: #b2d9ba; }
+footer { margin-top: auto; font-size: 11px; color: #7e8b81; }
+.toasts { position: fixed; right: 24px; bottom: 40px; display: grid; gap: 8px; width: min(340px, calc(100vw - 48px)); pointer-events: none; }
+.toast { padding: 9px 12px; border: 1px solid #303330; border-left: 3px solid #b2d9ba; border-radius: 8px; background: #222724; color: #e8e8e6; line-height: 1.5; overflow-wrap: anywhere; }
+.toast.error { border-left-color: #e0a092; }

@@ -10,7 +10,7 @@ const guildId = '223456789012345678';
 const config: Config = {
   discordToken: 'fixture-secret-do-not-log', applicationId: appId, guildId,
   allowedChannelIds: new Set(['323456789012345678']), publicUrl: 'https://example.com',
-  joinKey: undefined, port: 3000, host: '0.0.0.0', databasePath: ':memory:', maxMediaBytes: 1024, maxClients: 10,
+  joinKey: undefined, port: 3000, host: '0.0.0.0', databasePath: ':memory:', maxMediaBytes: 1024, maxClients: 10, gifApiKey: undefined,
 };
 
 function api() {
@@ -104,5 +104,20 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
     expect(publishText.mock.results[0]?.value).toBe(true);
     client.emit(Events.MessageUpdate, text, text);
     expect(publishText.mock.results[1]?.value).toBe(false);
+    const spoilerText = makeMessage(client, guildId, channelId); spoilerText.author = original.author; spoilerText.content = 'Fin du film : ||il meurt||';
+    client.emit(Events.MessageCreate, spoilerText);
+    expect(publishText).toHaveBeenCalledTimes(2);
+    // The late unfurl of a spoilered link arrives without content: the flag from creation must hold.
+    const spoilerLink = makeMessage(client, guildId, channelId); spoilerLink.author = original.author; spoilerLink.content = '||https://tenor.com/view/secret||';
+    client.emit(Events.MessageCreate, spoilerLink);
+    const late = makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url: 'https://media.tenor.com/secretAAAAC/secret.mp4' } }]);
+    Object.defineProperty(late, 'id', { value: spoilerLink.id });
+    client.emit(Events.MessageUpdate, spoilerLink, late);
+    expect(publish).toHaveBeenCalledTimes(2);
+    const retract = vi.spyOn(application, 'retract');
+    client.emit(Events.MessageDelete, makeMessage(client, guildId, channelId));
+    client.emit(Events.MessageDelete, makeMessage(client, guildId, appId));
+    expect(retract).toHaveBeenCalledOnce();
+    expect(retract).toHaveBeenCalledWith(channelId, [expect.any(String)]);
   } finally { await bot.stop(); await application.app.close(); }
 });
