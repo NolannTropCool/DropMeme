@@ -53,4 +53,24 @@ describe('GIF grid keyboard navigation', () => {
     expect(move(6, 'ArrowDown')).toBe(11);
     expect(move(10, 'ArrowDown')).toBe(10);
   });
+  test('runs across the favorites grid then the Klipy grid, each starting its own row', () => {
+    // 7 favorites (0-4, 5-6) above 6 GIFs (7-11, 12).
+    const both = (index: number, key: string, shiftKey = false) => gridMove(index, { key, shiftKey }, [7, 6], 5);
+    expect(both(-1, 'ArrowDown')).toBe(0);
+    expect(both(3, 'ArrowDown')).toBe(6);
+    expect(both(6, 'ArrowDown')).toBe(8);
+    expect(both(5, 'ArrowDown')).toBe(7);
+    expect(both(10, 'ArrowUp')).toBe(6);
+    expect(both(8, 'ArrowUp')).toBe(6);
+    expect(both(7, 'ArrowUp')).toBe(5);
+    expect(both(6, 'ArrowRight')).toBe(7);
+    expect(both(7, 'ArrowLeft')).toBe(6);
+    expect(both(6, 'Tab')).toBe(7);
+    expect(both(12, 'Tab')).toBe(12);
+    expect(both(9, 'ArrowDown')).toBe(12);
+    expect(both(2, 'ArrowUp')).toBe(-1);
+    // An empty section takes no row.
+    expect(gridMove(2, { key: 'ArrowUp' }, [0, 6], 5)).toBe(-1);
+    expect(gridMove(-1, { key: 'ArrowDown' }, [0, 0], 5)).toBeUndefined();
+  });
 });

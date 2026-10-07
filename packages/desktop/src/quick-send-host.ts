@@ -3,13 +3,14 @@ import { emitTo } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { cursorPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/api/window';
 import { register, unregister, unregisterAll } from '@tauri-apps/plugin-global-shortcut';
-import { quickSendRequestSchema, type GifSearchResponse } from '@dropmeme/shared';
+import { quickSendRequestSchema, type Favorite, type GifSearchResponse } from '@dropmeme/shared';
+import type { Favorites, ReceivedMedia } from './favorites.js';
 import { applyWindowGeometry } from './monitors.js';
 import { readToken, type Preferences } from './preferences.js';
 import { defaultMaxMediaBytes, fileError } from './picker.js';
 import { searchGifs, sendFile, sendGif, sendText } from './send.js';
 
-export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean; maxMediaBytes: number }
+export interface QuickSendState { online: boolean; channelName?: string | undefined; gifSearch: boolean; maxMediaBytes: number; favorites: Favorite[]; received: ReceivedMedia[] }
 type ServerFeatures = { gifSearch?: boolean | undefined; maxMediaBytes?: number | undefined };
 export type QuickSendResult = { id: string; ok: true; gifs?: GifSearchResponse } | { id: string; ok: false; error: string };
 // Logical size, same as the quick-send window in tauri.conf.json.
@@ -23,7 +24,7 @@ export class QuickSend {
   private shortcut: string | undefined;
   private window: WebviewWindow | null = null;
 
-  constructor(private readonly preferences: () => Preferences) {}
+  constructor(private readonly preferences: () => Preferences, private readonly favorites: Favorites) {}
 
   async initialize(): Promise<void> {
     // A reloaded main webview would otherwise find its own previous binding already taken.
@@ -49,9 +50,13 @@ export class QuickSend {
     this.shortcut = accelerator;
   }
 
-  private push(event: 'quick-send-state' | 'quick-send-open'): void {
+  /** Also called when the favorites change: main holds them, quick-send only receives this state. */
+  push(event: 'quick-send-state' | 'quick-send-open' = 'quick-send-state'): void {
     if (!this.window) return;
-    const state: QuickSendState = { online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: !!this.features.gifSearch, maxMediaBytes: this.maxMediaBytes };
+    const state: QuickSendState = {
+      online: this.online, channelName: this.preferences().subscription?.channelName, gifSearch: !!this.features.gifSearch, maxMediaBytes: this.maxMediaBytes,
+      favorites: this.favorites.list, received: this.favorites.received,
+    };
     void emitTo('quick-send', event, state).catch(() => {});
   }
 
@@ -79,17 +84,23 @@ export class QuickSend {
     const search = data.kind === 'search' ? (this.search?.abort(), this.search = new AbortController()) : undefined;
     let result: QuickSendResult = { id, ok: true };
     try {
-      // Claim the staged bytes first so Rust frees them even when this send fails.
-      const file = data.kind === 'file' ? new File([await invoke<ArrayBuffer>('take_file', { id })], data.name, { type: data.type }) : undefined;
-      const invalid = file && fileError(file, this.maxMediaBytes);
-      if (invalid) throw new Error(invalid);
-      const token = this.online ? await readToken() : undefined;
-      if (!token) throw new Error('DropMeme n’est pas connecté au salon.');
-      const { server } = this.preferences();
-      if (data.kind === 'text') await sendText(server, token, data.text);
-      else if (data.kind === 'gif') await sendGif(server, token, data.gif);
-      else if (data.kind === 'search') result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
-      else await sendFile(server, token, file!);
+      // Favorites stay on the device: no token, and a received media is downloaded through main's own ticket.
+      if (data.kind === 'favorite-gif') await this.favorites.addGif(data.gif, data.name);
+      else if (data.kind === 'favorite-file') await this.favorites.addFile(await invoke<ArrayBuffer>('take_file', { id }), data.type, data.name);
+      else if (data.kind === 'favorite-received') await this.favorites.addReceived(data.media);
+      else {
+        // Claim the staged bytes first so Rust frees them even when this send fails.
+        const file = data.kind === 'file' ? new File([await invoke<ArrayBuffer>('take_file', { id })], data.name, { type: data.type }) : undefined;
+        const invalid = file && fileError(file, this.maxMediaBytes);
+        if (invalid) throw new Error(invalid);
+        const token = this.online ? await readToken() : undefined;
+        if (!token) throw new Error('DropMeme n’est pas connecté au salon.');
+        const { server } = this.preferences();
+        if (data.kind === 'text') await sendText(server, token, data.text);
+        else if (data.kind === 'gif') await sendGif(server, token, data.gif);
+        else if (data.kind === 'search') result = { id, ok: true, gifs: await searchGifs(server, token, data.q, data.page, search!.signal) };
+        else await sendFile(server, token, file!);
+      }
     } catch (error) {
       // Rust commands reject with a plain string.
       result = { id, ok: false, error: error instanceof Error ? error.message : typeof error === 'string' ? error : 'Envoi impossible.' };

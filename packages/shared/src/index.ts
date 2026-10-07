@@ -79,19 +79,34 @@ export const textRequestSchema = z.object({ text: z.string().trim().min(1).max(2
 export const gifId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const gifSearchRequestSchema = z.object({ q: z.string().trim().min(2).max(100), page: z.coerce.number().int().min(1).max(20).default(1) });
 export const gifRequestSchema = z.object({ id: gifId, recipientId: z.string().uuid().optional() }).strict();
+const httpsUrl = z.url({ protocol: /^https$/ });
+export const gifResultSchema = z.object({ id: gifId, previewUrl: httpsUrl, url: httpsUrl, width: z.number().int().positive(), height: z.number().int().positive() });
+export type GifResult = z.infer<typeof gifResultSchema>;
+/** Formats a favorite file may keep. MOV is converted by the server, so it never reaches the device as MOV. */
+export const favoriteExtension = z.enum(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'mp4', 'webm']);
+export type FavoriteExtension = z.infer<typeof favoriteExtension>;
+const favoriteName = z.string().trim().min(1).max(64);
+/** Local to the device: a GIF keeps only Klipy's slug and preview, a file is copied to appDataDir/favorites/<id>.<ext>. */
+export const favoriteSchema = z.discriminatedUnion('kind', [
+  z.object({ id: z.string().uuid(), kind: z.literal('gif'), name: favoriteName, gif: gifId, previewUrl: httpsUrl, width: z.number().int().positive(), height: z.number().int().positive() }),
+  z.object({ id: z.string().uuid(), kind: z.literal('file'), name: favoriteName, ext: favoriteExtension, size: z.number().int().positive() }),
+]);
+export type Favorite = z.infer<typeof favoriteSchema>;
 const quickSendId = z.string().uuid();
-/** Quick-send webview to main webview, relayed by Rust. Always the whole channel. Favorite kinds join this union. */
+const fileName = z.string().min(1).max(256);
+/** Quick-send webview to main webview, relayed by Rust. Always the whole channel. */
 export const quickSendRequestSchema = z.discriminatedUnion('kind', [
   z.object({ id: quickSendId, kind: z.literal('text'), text: textRequestSchema.shape.text }).strict(),
   z.object({ id: quickSendId, kind: z.literal('search'), q: gifSearchRequestSchema.shape.q, page: z.number().int().min(1).max(20) }).strict(),
   z.object({ id: quickSendId, kind: z.literal('gif'), gif: gifId }).strict(),
   // The bytes are staged in Rust under the same id; only the metadata travels here.
-  z.object({ id: quickSendId, kind: z.literal('file'), name: z.string().min(1).max(256), type: z.string().max(100) }).strict(),
+  z.object({ id: quickSendId, kind: z.literal('file'), name: fileName, type: z.string().max(100) }).strict(),
+  z.object({ id: quickSendId, kind: z.literal('favorite-gif'), gif: gifResultSchema.omit({ url: true }).strict(), name: favoriteName }).strict(),
+  z.object({ id: quickSendId, kind: z.literal('favorite-file'), name: fileName, type: z.string().max(100) }).strict(),
+  // Only an id: main downloads the media it received itself, never a URL chosen by another webview.
+  z.object({ id: quickSendId, kind: z.literal('favorite-received'), media: z.string().min(1).max(100) }).strict(),
 ]);
 export type QuickSendRequest = z.infer<typeof quickSendRequestSchema>;
-const httpsUrl = z.url({ protocol: /^https$/ });
-export const gifResultSchema = z.object({ id: gifId, previewUrl: httpsUrl, url: httpsUrl, width: z.number().int().positive(), height: z.number().int().positive() });
-export type GifResult = z.infer<typeof gifResultSchema>;
 export const gifSearchResponseSchema = z.object({ results: z.array(gifResultSchema).max(50), hasNext: z.boolean() });
 export type GifSearchResponse = z.infer<typeof gifSearchResponseSchema>;
 export function isAnimation(media: Pick<MediaEvent, 'kind' | 'name' | 'loop' | 'animation'>): boolean {

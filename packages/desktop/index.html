@@ -23,6 +23,7 @@
           <button type="button" role="tab" id="tab-salon" aria-controls="view-salon">Salon</button>
           <button type="button" role="tab" id="tab-display" aria-controls="view-display">Affichage</button>
           <button type="button" role="tab" id="tab-send" aria-controls="view-send">Envoyer</button>
+          <button type="button" role="tab" id="tab-favorites" aria-controls="view-favorites">Favoris</button>
           <button type="button" role="tab" id="tab-about" aria-controls="view-about">À propos</button>
         </div>
       </div>
@@ -102,6 +103,15 @@
           <div class="section-heading"><h2 id="shortcut-heading">Envoi rapide</h2><span class="eyebrow">RACCOURCI</span></div>
           <label for="quickSendShortcut">Raccourci clavier</label><input id="quickSendShortcut" readonly autocomplete="off" />
           <p id="shortcut-status" class="hint" role="status">Ouvre l’envoi rapide depuis n’importe quelle application. Cliquez dans le champ puis appuyez sur la combinaison voulue.</p>
+        </section>
+      </section>
+
+      <section id="view-favorites" class="view" role="tabpanel" aria-labelledby="tab-favorites" hidden>
+        <section class="panel favorites-panel" aria-labelledby="favorites-heading">
+          <div class="section-heading"><h2 id="favorites-heading">Vos favoris</h2><span class="eyebrow">ENVOI RAPIDE</span></div>
+          <p id="favorites-usage" class="hint" role="status"></p>
+          <p id="favorites-empty" class="hint" hidden>Ajoutez-en depuis l’envoi rapide : étoile sur un GIF ou un fichier (Ctrl+D), ou bouton « Reçus » pour les derniers médias reçus. Ils restent sur cet appareil.</p>
+          <ul id="favorites-list" class="item-list favorites"></ul>
         </section>
       </section>
 
