@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-send",
+  "description": "Quick-send launcher asks the main window to send and hides itself; no credential, file or store access.",
+  "windows": ["quick-send"],
+  "permissions": ["core:event:default", "core:window:allow-hide"]
+}

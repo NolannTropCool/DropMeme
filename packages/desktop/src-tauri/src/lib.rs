@@ -206,6 +206,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             load_token,
             save_token,
@@ -251,13 +252,16 @@ pub fn run() {
             tray.build(app)?;
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+        .on_window_event(|window, event| match (window.label(), event) {
+            // Both stay alive hidden: main relays quick-send requests, quick-send must open instantly.
+            ("main" | "quick-send", WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            ("quick-send", WindowEvent::Focused(false)) => {
+                let _ = window.hide();
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("Impossible de démarrer DropMeme");

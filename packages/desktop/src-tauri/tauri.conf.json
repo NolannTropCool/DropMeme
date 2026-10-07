@@ -20,6 +20,22 @@
         "minHeight": 600,
         "backgroundColor": "#141615",
         "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
+      },
+      {
+        "label": "quick-send",
+        "url": "quick-send.html",
+        "title": "DropMeme · Envoi rapide",
+        "width": 640,
+        "height": 360,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
       }
     ],
     "security": {
