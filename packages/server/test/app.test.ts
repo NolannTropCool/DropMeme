@@ -58,16 +58,16 @@ describe('HTTP and real WebSocket integration', () => {
   test('private codes bind existing or new devices; mentions reach only consenting linked devices in the channel', async () => {
     const userA = '323456789012345678'; const userB = '423456789012345678';
     const existing = await pair(); const a = await open(existing.token, { name: 'Alice', acceptDirect: true });
-    const linkCode = application.store.createPairing(channelA, 'memes', Date.now(), userA);
+    const linkCode = application.store.createPairing(channelA, 'memes', Date.now(), userA, 'Alice D');
     const link = (payload: unknown) => application.app.inject({ method: 'POST', url: '/v2/device/link', headers: { authorization: `Bearer ${existing.token}` }, payload });
     expect((await link({ code: linkCode, discordUserId: userB })).statusCode).toBe(400);
-    const linked = await link({ code: linkCode }); expect(linked.statusCode).toBe(200); expect(linked.json()).toEqual({ discordUserId: userA });
+    const linked = await link({ code: linkCode }); expect(linked.statusCode).toBe(200); expect(linked.json()).toEqual({ discordUserId: userA, discordUserName: 'Alice D' });
     expect(application.store.authenticate(existing.token)?.discordUserId).toBe(userA);
-    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'ready').at(-1)).toMatchObject({ discordUserId: userA }));
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'ready').at(-1)).toMatchObject({ discordUserId: userA, discordUserName: 'Alice D' }));
     expect((await link({ code: linkCode })).statusCode).toBe(401);
-    const code = application.store.createPairing(channelA, 'memes', Date.now(), userB);
+    const code = application.store.createPairing(channelA, 'memes', Date.now(), userB, 'Bob D');
     const paired = await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { code } });
-    expect(paired.statusCode).toBe(201); expect(paired.json().discordUserId).toBe(userB);
+    expect(paired.statusCode).toBe(201); expect(paired.json()).toMatchObject({ discordUserId: userB, discordUserName: 'Bob D' });
     const b = await open((paired.json() as PairingResponse).token, { name: 'Bob', acceptDirect: true });
     const refused = application.store.createDevice(channelA, 'memes', userA);
     const c = await open(refused.token, { name: 'Refus', acceptDirect: false });

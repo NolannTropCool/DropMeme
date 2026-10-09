@@ -7,63 +7,160 @@
     <title>DropMeme</title>
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">d.</span><div><h1>DropMeme</h1><p>Du salon à votre écran.</p></div></div>
-        <div class="connection-pill"><span id="status-dot" class="status-dot"></span><span id="status">Déconnecté</span></div>
-      </header>
-      <section class="panel connect-panel" aria-labelledby="connection-heading">
-        <div class="section-heading"><h2 id="connection-heading">Votre salon</h2><span class="eyebrow">01 / CONNEXION</span></div>
-        <form id="connect-form">
-          <label for="server">Adresse du serveur</label>
-          <input id="server" type="url" placeholder="https://dropmeme.example.com" required autocomplete="url" />
-          <div class="mode-tabs" role="group" aria-label="Méthode de connexion"><button type="button" id="mode-code" class="tab active" aria-pressed="true">Code Discord</button><button type="button" id="mode-channel" class="tab" aria-pressed="false">ID du salon</button></div>
-          <div id="code-fields"><label for="code">Code de connexion</label><input id="code" placeholder="XXXXXXXX-XXXXXXXX" autocomplete="off" spellcheck="false" maxlength="17" /><p class="hint">Envoyez <code>/dropmeme</code> avec votre compte dans le salon Discord. Le code privé lie votre compte et expire après 10 minutes. Ne le partagez pas.</p></div>
-          <div id="channel-fields" hidden><label for="channel">ID du salon</label><input id="channel" inputmode="numeric" placeholder="123456789012345678" /><label for="join-key">Clé d’invitation</label><input id="join-key" type="password" autocomplete="off" /><p class="hint">Demandez la clé à l’administrateur du serveur.</p></div>
-          <button type="submit" class="button primary" id="connect">S’abonner au salon <span aria-hidden="true">↗</span></button>
-        </form>
-        <div id="subscription" hidden><div class="channel-summary"><span aria-hidden="true">#</span><div><strong id="channel-name"></strong><p id="channel-id" class="hint"></p></div></div><div class="button-row"><button id="pause" class="button" type="button">Mettre en pause</button><button id="disconnect" class="button quiet" type="button">Se désabonner</button></div></div>
-        <p id="message" role="status" aria-live="polite"></p>
-      </section>
-      <section class="panel settings-panel" aria-labelledby="display-heading">
-        <div class="section-heading"><h2 id="display-heading">Affichage</h2><span class="eyebrow">02 / PRÉFÉRENCES</span></div>
-        <div class="fields-grid">
-          <div><label for="monitor">Écran</label><select id="monitor"><option value="primary">Écran principal</option></select></div>
-          <div><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
-          <div><label for="width">Largeur <span class="unit">px logiques</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
-          <div><label for="height">Hauteur <span class="unit">px logiques</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
-          <div><label for="gifDurationSeconds">Durée des GIF <span class="unit">secondes</span></label><input id="gifDurationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="videoDurationSeconds">Durée des vidéos <span class="unit">secondes, maximum</span></label><input id="videoDurationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="durationSeconds">Images et texte <span class="unit">secondes</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
-          <div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div>
+    <div class="app">
+      <aside class="sidebar">
+        <h1 class="brand">Drop<span>Meme</span></h1>
+        <nav class="nav" aria-label="Sections">
+          <button type="button" data-page="home" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></svg>Accueil</button>
+          <button type="button" data-page="display"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>Affichage</button>
+          <button type="button" data-page="media"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>Médias</button>
+          <button type="button" data-page="send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z" /></svg>Envois</button>
+          <button type="button" data-page="app"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" /></svg>Application</button>
+        </nav>
+        <div class="queue-card">
+          <p class="eyebrow">File d’attente</p>
+          <p id="queue-status">Aucun média en attente</p>
+          <div class="button-row"><button id="skip" type="button" class="chip">Passer</button><button id="clear" type="button" class="chip">Vider la file</button></div>
         </div>
-        <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le petit onglet, redimensionnez le cadre, puis validez avec ✓. Une disposition par écran.</p></div>
-        <div class="toggle-row"><label for="showAuthor">Afficher l’expéditeur</label><input id="showAuthor" type="checkbox" class="switch" /></div>
-        <label for="captionPosition">Texte accompagnant le média</label><select id="captionPosition"><option value="below">En dessous</option><option value="above">Au-dessus</option></select>
-        <div class="toggle-row"><label for="multiDisplay">Plusieurs GIF et textes en même temps<span>Une seule vidéo classique à la fois.</span></label><input id="multiDisplay" type="checkbox" class="switch" /></div>
-        <div id="multi-fields" hidden class="fields-grid"><div><label for="maxSimultaneous">GIF et textes simultanés</label><input id="maxSimultaneous" type="number" min="2" max="8" /></div><div><label for="multiPlacement">Placement des GIF et textes</label><select id="multiPlacement"><option value="random">Aléatoire sur l’écran choisi</option><option value="zones">Mes zones</option></select></div></div>
-        <div id="zones-fields" hidden><p class="hint">Un GIF ou texte par zone disponible. Le surplus attend son tour. Jusqu’à 8 zones, sur plusieurs écrans.</p><ul id="zones-list" class="item-list"></ul><button id="add-zone" class="button" type="button">Ajouter une zone</button></div>
-        <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
-        <div class="divider"></div>
-        <div class="toggle-row"><label for="sound">Lire le son <span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>
-        <div class="range-field"><label for="volume">Volume <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100" /></div>
-        <fieldset class="media-types"><legend>Accepter les médias</legend><label><input id="images" type="checkbox" /> Images & GIF</label><label><input id="videos" type="checkbox" /> Vidéos</label><label><input id="audio" type="checkbox" /> Audio</label><label><input id="texts" type="checkbox" /> Texte</label></fieldset>
-        <div class="divider"></div>
-        <div class="toggle-row"><label for="autostart">Ouvrir avec Windows</label><input id="autostart" type="checkbox" class="switch" /></div>
-        <div class="toggle-row"><label for="startMinimized">Démarrer dans la zone de notification</label><input id="startMinimized" type="checkbox" class="switch" /></div>
-        <div class="button-row settings-actions"><button id="preview" class="button" type="button">Tester l’affichage</button><span id="saved" class="hint">Réglages enregistrés automatiquement.</span></div>
-      </section>
-      <section class="panel social-panel" aria-labelledby="social-heading">
-        <div class="section-heading"><h2 id="social-heading">Dans le salon</h2><span class="eyebrow">03 / ENVOIS</span></div>
-        <div class="fields-grid"><div><label for="displayName">Votre pseudo dans l’application</label><input id="displayName" maxlength="64" /></div><div class="toggle-row"><label for="acceptDirect">Accepter les envois directs<span>Des abonnés de ce salon uniquement.</span></label><input id="acceptDirect" type="checkbox" class="switch" /></div></div>
-        <p id="discord-identity-status" class="hint">Aucun compte Discord lié.</p>
-        <form id="discord-link-form"><label for="discord-link-code">Lier votre compte Discord</label><input id="discord-link-code" placeholder="XXXXXXXX-XXXXXXXX" maxlength="17" autocomplete="off" spellcheck="false" /><p id="discord-link-hint" class="hint"></p><button id="discord-link-button" type="submit" class="button" disabled>Lier le compte</button><p id="discord-link-status" class="hint" role="status"></p></form>
-        <p id="presence-status" class="hint" role="status">Connectez-vous pour voir les abonnés en ligne.</p><ul id="peers-list" class="item-list"></ul>
-        <form id="send-form"><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select><label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea><label for="send-file">Ajouter un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /><p class="hint">Avec un fichier, le texte s’affiche en légende du média. Taille maximale : 25 Mo par défaut.</p><button id="send" type="submit" class="button primary" disabled>Envoyer</button><p id="send-status" class="hint" role="status"></p></form>
-      </section>
-      <section class="panel release-panel" aria-labelledby="release-heading"><div class="section-heading"><h2 id="release-heading">DropMeme <span id="app-version"></span></h2><span class="eyebrow">04 / MISES À JOUR</span></div><div class="button-row"><button id="check-update" class="button" type="button">Rechercher une mise à jour</button><button id="install-update" class="button" type="button" hidden>Installer et redémarrer</button></div><p id="update-status" class="hint" role="status"></p><progress id="update-progress" max="100" value="0" hidden></progress><details><summary>Nouveautés et historique</summary><div id="changelog"></div></details></section>
-      <footer><span id="queue-status">Aucun média en attente</span><div><button id="skip" type="button" class="text-button">Passer</button><button id="clear" type="button" class="text-button">Vider la file</button><button id="hide" type="button" class="text-button">Réduire</button></div></footer>
-    </main>
+        <button id="hide" type="button" class="nav-link"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14" /></svg>Réduire</button>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div class="topbar-row">
+            <div><p class="greeting">Bonjour, <span id="greeting-name">Utilisateur</span> <span aria-hidden="true">👋</span></p><p id="saved" class="hint">Réglages enregistrés automatiquement.</p></div>
+            <div class="connection-pill"><span id="status-dot" class="status-dot"></span><span id="status">Déconnecté</span></div>
+          </div>
+          <p id="message" role="status" aria-live="polite"></p>
+        </header>
+
+        <section id="page-home" class="page" aria-label="Accueil">
+          <form id="connect-form" class="card hero">
+            <h2>Abonnez-vous à un salon</h2>
+            <p class="hint lead">Les images, GIF et vidéos publiés dans le salon s’afficheront sur votre écran.</p>
+            <label for="server">Adresse du serveur</label>
+            <input id="server" type="url" placeholder="https://dropmeme.example.com" required autocomplete="url" />
+            <div class="mode-tabs" role="group" aria-label="Méthode de connexion"><button type="button" id="mode-code" class="tab active" aria-pressed="true">Code Discord</button><button type="button" id="mode-channel" class="tab" aria-pressed="false">ID du salon</button></div>
+            <div id="code-fields"><label for="code">Code de connexion</label><input id="code" placeholder="XXXXXXXX-XXXXXXXX" autocomplete="off" spellcheck="false" maxlength="17" /><p class="hint">Envoyez <code>/dropmeme</code> avec votre compte dans le salon Discord. Le code privé vous abonne et lie votre compte Discord en une seule étape. Il expire après 10 minutes : ne le partagez pas.</p></div>
+            <div id="channel-fields" hidden><label for="channel">ID du salon</label><input id="channel" inputmode="numeric" placeholder="123456789012345678" /><label for="join-key">Clé d’invitation</label><input id="join-key" type="password" autocomplete="off" /><p class="hint">Demandez la clé à l’administrateur du serveur. Vous pourrez lier votre compte Discord ensuite.</p></div>
+            <button type="submit" class="button primary" id="connect">S’abonner au salon <span aria-hidden="true">→</span></button>
+          </form>
+
+          <div id="subscription" class="grid-2" hidden>
+            <article class="card hero">
+              <p class="eyebrow">Votre salon</p>
+              <div class="channel-summary"><span aria-hidden="true">#</span><div><strong id="channel-name"></strong><p id="channel-id" class="hint"></p></div></div>
+              <div class="button-row"><button id="pause" class="button" type="button">Mettre en pause</button><button id="disconnect" class="button quiet" type="button">Se désabonner</button></div>
+            </article>
+            <article class="card discord-card">
+              <p class="eyebrow">Compte Discord</p>
+              <p id="discord-identity-status" class="identity">Aucun compte lié</p>
+              <p id="discord-identity-hint" class="hint"></p>
+              <button id="discord-relink" type="button" class="text-button" hidden>Lier un autre compte</button>
+              <form id="discord-link-form"><label for="discord-link-code">Lier votre compte Discord</label><input id="discord-link-code" placeholder="XXXXXXXX-XXXXXXXX" maxlength="17" autocomplete="off" spellcheck="false" /><p id="discord-link-hint" class="hint"></p><button id="discord-link-button" type="submit" class="button" disabled>Lier le compte</button></form>
+              <p id="discord-link-status" class="hint" role="status"></p>
+            </article>
+          </div>
+        </section>
+
+        <section id="page-display" class="page settings-panel" aria-label="Affichage" hidden>
+          <div class="page-head"><div><h2>Affichage</h2><p class="hint">Où et comment les médias apparaissent sur vos écrans.</p></div><button id="preview" class="button accent" type="button">Tester l’affichage</button></div>
+          <div class="grid-2">
+            <article class="card">
+              <h3>Écran et position</h3>
+              <div class="fields-grid">
+                <div class="span-2"><label for="monitor">Écran</label><select id="monitor"><option value="primary">Écran principal</option></select></div>
+                <div class="span-2"><label for="position">Position</label><select id="position"><option value="bottom-right">En bas à droite</option><option value="bottom-left">En bas à gauche</option><option value="top-right">En haut à droite</option><option value="top-left">En haut à gauche</option><option value="center">Au centre</option><option value="custom">Placement libre</option></select></div>
+                <div><label for="width">Largeur <span class="unit">px</span></label><input id="width" type="number" min="160" max="8192" step="10" /></div>
+                <div><label for="height">Hauteur <span class="unit">px</span></label><input id="height" type="number" min="120" max="4320" step="10" /></div>
+              </div>
+              <div class="placement-actions"><button id="place" class="button" type="button">Placer sur l’écran</button><p id="placement-hint" class="hint">Déplacez le cadre, redimensionnez-le, puis validez avec ✓. Une disposition par écran.</p></div>
+              <div class="range-field"><label for="opacity">Opacité <output id="opacity-value"></output></label><input id="opacity" type="range" min="20" max="100" /></div>
+            </article>
+            <article class="card">
+              <h3>Plusieurs médias à la fois</h3>
+              <div class="toggle-row"><label for="multiDisplay">Plusieurs GIF et textes en même temps<span>Une seule vidéo classique à la fois.</span></label><input id="multiDisplay" type="checkbox" class="switch" /></div>
+              <div id="multi-fields" hidden class="fields-grid"><div><label for="maxSimultaneous">Simultanés</label><input id="maxSimultaneous" type="number" min="2" max="8" /></div><div><label for="multiPlacement">Placement des GIF et textes</label><select id="multiPlacement"><option value="random">Aléatoire</option><option value="zones">Mes zones</option></select></div></div>
+              <div id="zones-fields" hidden><p class="hint">Un GIF ou texte par zone. Le surplus attend son tour. Jusqu’à 8 zones, sur plusieurs écrans.</p><ul id="zones-list" class="item-list"></ul><button id="add-zone" class="button" type="button">Ajouter une zone</button></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="page-media" class="page settings-panel" aria-label="Médias" hidden>
+          <div class="page-head"><div><h2>Médias</h2><p class="hint">Ce que vous recevez et combien de temps ça reste à l’écran.</p></div></div>
+          <div class="grid-2">
+            <article class="card">
+              <h3>Types acceptés</h3>
+              <div class="toggle-row"><label for="images">Images et GIF</label><input id="images" type="checkbox" class="switch" /></div>
+              <div class="toggle-row"><label for="videos">Vidéos</label><input id="videos" type="checkbox" class="switch" /></div>
+              <div class="toggle-row"><label for="audio">Audio</label><input id="audio" type="checkbox" class="switch" /></div>
+              <div class="toggle-row"><label for="texts">Texte<span>Messages et légendes des médias.</span></label><input id="texts" type="checkbox" class="switch" /></div>
+            </article>
+            <article class="card">
+              <h3>Durées</h3>
+              <div class="fields-grid">
+                <div><label for="gifDurationSeconds">Durée des GIF <span class="unit">s</span></label><input id="gifDurationSeconds" type="number" min="2" max="120" /></div>
+                <div><label for="videoDurationSeconds">Durée des vidéos <span class="unit">s max</span></label><input id="videoDurationSeconds" type="number" min="2" max="120" /></div>
+                <div><label for="durationSeconds">Images et texte <span class="unit">s</span></label><input id="durationSeconds" type="number" min="2" max="120" /></div>
+                <div><label for="maxQueue">File d’attente <span class="unit">médias</span></label><input id="maxQueue" type="number" min="1" max="30" /></div>
+              </div>
+            </article>
+            <article class="card span-2">
+              <h3>Son et texte</h3>
+              <div class="grid-2 inner">
+                <div>
+                  <div class="toggle-row"><label for="sound">Lire le son<span>Muet par défaut, même pour les vidéos.</span></label><input id="sound" type="checkbox" class="switch" /></div>
+                  <div class="range-field"><label for="volume">Volume <output id="volume-value"></output></label><input id="volume" type="range" min="0" max="100" /></div>
+                </div>
+                <div>
+                  <div class="toggle-row"><label for="showAuthor">Afficher l’expéditeur</label><input id="showAuthor" type="checkbox" class="switch" /></div>
+                  <label for="captionPosition">Texte accompagnant le média</label><select id="captionPosition"><option value="below">En dessous</option><option value="above">Au-dessus</option></select>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="page-send" class="page" aria-label="Envois" hidden>
+          <div class="page-head"><div><h2>Envois</h2><p class="hint">Partagez du texte et des fichiers avec les abonnés du salon.</p></div></div>
+          <div class="grid-2">
+            <article class="card">
+              <h3>Votre profil</h3>
+              <label for="displayName">Votre pseudo dans l’application</label><input id="displayName" maxlength="64" />
+              <div class="toggle-row"><label for="acceptDirect">Accepter les envois directs<span>Des abonnés de ce salon et des mentions Discord.</span></label><input id="acceptDirect" type="checkbox" class="switch" /></div>
+            </article>
+            <article class="card">
+              <h3>Dans le salon</h3>
+              <p id="presence-status" class="hint" role="status">Connectez-vous pour voir les abonnés en ligne.</p><ul id="peers-list" class="item-list"></ul>
+            </article>
+            <form id="send-form" class="card span-2">
+              <h3>Envoyer</h3>
+              <div class="fields-grid"><div><label for="recipient">Destinataire</label><select id="recipient"><option value="">Tout le salon</option></select></div><div><label for="send-file">Ajouter un fichier</label><input id="send-file" type="file" accept=".gif,.webp,.png,.jpg,.jpeg,.avif,.mov,.mp4,.webm" /></div></div>
+              <label for="send-text">Texte</label><textarea id="send-text" rows="3" maxlength="2000" placeholder="Un message à afficher sur les écrans…"></textarea>
+              <p class="hint">Avec un fichier, le texte s’affiche en légende du média. Taille maximale : 25 Mo par défaut.</p>
+              <div class="button-row"><button id="send" type="submit" class="button accent" disabled>Envoyer</button><p id="send-status" class="hint" role="status"></p></div>
+            </form>
+          </div>
+        </section>
+
+        <section id="page-app" class="page" aria-label="Application" hidden>
+          <div class="page-head"><div><h2>Application</h2><p class="hint">Démarrage, version et mises à jour.</p></div></div>
+          <div class="grid-2">
+            <article class="card">
+              <h3>Démarrage</h3>
+              <div class="toggle-row"><label for="autostart">Ouvrir avec Windows</label><input id="autostart" type="checkbox" class="switch" /></div>
+              <div class="toggle-row"><label for="startMinimized">Démarrer dans la zone de notification</label><input id="startMinimized" type="checkbox" class="switch" /></div>
+            </article>
+            <article class="card release-card">
+              <h3>DropMeme <span id="app-version"></span></h3>
+              <div class="button-row"><button id="check-update" class="button" type="button">Rechercher une mise à jour</button><button id="install-update" class="button accent" type="button" hidden>Installer et redémarrer</button></div>
+              <p id="update-status" class="hint" role="status"></p><progress id="update-progress" max="100" value="0" hidden></progress>
+              <details><summary>Nouveautés et historique</summary><div id="changelog"></div></details>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

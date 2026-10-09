@@ -7,9 +7,11 @@ const element = <T extends HTMLElement>(id: string) => document.getElementById(i
 export class DiscordIdentity {
   private available = false;
   private busy = false;
+  private relinking = false;
 
   constructor(private readonly preferences: () => Preferences, private readonly save: () => Promise<void>) {
     element<HTMLFormElement>('discord-link-form').onsubmit = event => { event.preventDefault(); void this.link(); };
+    element('discord-relink').onclick = () => { this.relinking = true; this.render(); element('discord-link-code').focus(); };
   }
 
   setOnline(online: boolean, version = ''): void {
@@ -19,8 +21,15 @@ export class DiscordIdentity {
   }
 
   render(): void {
-    const id = this.preferences().subscription?.discordUserId;
-    element('discord-identity-status').textContent = id ? `Compte Discord lié : ${id}` : 'Aucun compte Discord lié.';
+    const { subscription, settings } = this.preferences();
+    const id = subscription?.discordUserId;
+    // Devices linked before names were stored only know the account ID.
+    element('discord-identity-status').textContent = id ? subscription?.discordUserName ?? `ID ${id}` : 'Aucun compte lié';
+    element('discord-identity-hint').textContent = !id ? '' : settings.acceptDirect
+      ? 'Les médias qui vous mentionnent sur Discord arrivent sur cet appareil.'
+      : 'Activez « Accepter les envois directs » dans Envois pour recevoir les médias qui vous mentionnent.';
+    element('discord-link-form').hidden = !!id && !this.relinking;
+    element('discord-relink').hidden = !id || this.relinking;
     element<HTMLButtonElement>('discord-link-button').disabled = !this.available || this.busy;
     element<HTMLInputElement>('discord-link-code').disabled = !this.available || this.busy;
     element('discord-link-hint').textContent = this.available
@@ -46,8 +55,9 @@ export class DiscordIdentity {
       if (!response.ok) throw new Error(response.status === 401 ? 'Code invalide, expiré, déjà utilisé ou créé dans un autre salon.' : 'Liaison refusée par le serveur.');
       const result = deviceLinkResponseSchema.parse(await response.json());
       if (this.preferences().server !== server || this.preferences().subscription?.deviceId !== subscription.deviceId) throw new Error('L’abonnement a changé. Relancez la liaison.');
-      this.preferences().subscription!.discordUserId = result.discordUserId;
-      await this.save(); input.value = ''; status.textContent = 'Compte lié. Vous pouvez maintenant recevoir les médias qui vous mentionnent si les envois directs sont activés.';
+      const current = this.preferences().subscription!;
+      current.discordUserId = result.discordUserId; current.discordUserName = result.discordUserName;
+      await this.save(); input.value = ''; this.relinking = false; status.textContent = 'Compte lié.';
     } catch (error) { status.textContent = error instanceof Error ? error.message : 'Liaison impossible.'; }
     finally { this.busy = false; this.render(); }
   }

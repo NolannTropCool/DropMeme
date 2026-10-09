@@ -1,5 +1,13 @@
 # Historique DropMeme
 
+## 0.4.0
+
+- Nouvelle interface en onglets (Accueil, Affichage, Médias, Envois, Application) : plus besoin de faire défiler les réglages.
+- L’abonnement par code `/dropmeme` affiche directement le pseudo du compte Discord lié ; un autre compte peut être lié en un clic.
+- Textes et légendes en style mème : Comic Sans blanc à contour noir, centrés, plus grands, sans fond.
+- Le bouton de mise à jour indique la raison exacte d’un échec.
+- Publication fiabilisée : tag `v<version>` vérifié dès le début, fins de ligne LF, contrôle de la clé de signature, release créée depuis GitHub complétée automatiquement.
+
 ## 0.3.0
 
 - Textes et GIF affichables simultanément, en placement aléatoire ou dans les zones personnalisées ; les vidéos ordinaires restent exclusives et passent une par une.

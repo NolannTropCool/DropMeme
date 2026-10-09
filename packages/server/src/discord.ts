@@ -82,7 +82,7 @@ export class DiscordBot implements DiscordBridge {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const name = await this.channelName(interaction.channelId);
         if (!name) { await interaction.editReply('Le bot ne peut pas accéder à ce salon.'); return; }
-        const code = application.store.createPairing(interaction.channelId, name, Date.now(), interaction.user.id);
+        const code = application.store.createPairing(interaction.channelId, name, Date.now(), interaction.user.id, interaction.user.displayName);
         await interaction.editReply(`Dans DropMeme, utilisez le serveur **${this.config.publicUrl}** et ce code :\n\`${code}\`\nIl permet de vous abonner ou de lier un appareil déjà abonné à votre compte Discord. Valable 10 minutes, pour un seul appareil. Gardez-le privé : les médias qui vous mentionnent seront envoyés à cet appareil s’il accepte les envois directs.`);
       } catch { application.app.log.warn('Discord pairing command failed'); }
     });

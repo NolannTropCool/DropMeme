@@ -3,6 +3,9 @@ import { check, type Update } from '@tauri-apps/plugin-updater';
 import { appVersion } from '@dropmeme/shared';
 import { changelog } from './changelog.js';
 
+// The updater plugin rejects with plain strings: keep its reason visible for diagnosis.
+const reason = (error: unknown) => error instanceof Error ? error.message : String(error);
+
 export function initializeUpdates(): void {
   const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   element('app-version').textContent = appVersion;
@@ -27,7 +30,7 @@ export function initializeUpdates(): void {
       update = await check({ timeout: 15_000 });
       status.textContent = update ? `Version ${update.version} disponible. L’installation fermera puis relancera DropMeme.` : 'Votre application est à jour.';
       install.hidden = !update;
-    } catch { status.textContent = 'Aucune mise à jour accessible. Réessayez après la publication de la prochaine version.'; }
+    } catch (error) { status.textContent = `Aucune mise à jour accessible (${reason(error)}).`; }
     finally { button.disabled = false; }
   };
   install.onclick = async () => {
@@ -44,7 +47,7 @@ export function initializeUpdates(): void {
         } else status.textContent = 'Téléchargement terminé. Vérification de la signature et installation…';
       });
       status.textContent = 'Installation terminée. Relancez DropMeme si nécessaire.';
-    } catch { status.textContent = 'Mise à jour interrompue ou signature invalide. L’application actuelle reste disponible.'; }
+    } catch (error) { status.textContent = `Mise à jour interrompue (${reason(error)}). L’application actuelle reste disponible.`; }
     finally { install.disabled = false; button.disabled = false; progress.hidden = true; }
   };
 }

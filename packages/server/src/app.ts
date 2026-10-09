@@ -87,7 +87,8 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
       url: catalog.url(config.publicUrl, media.id, device.id), name: media.name, author: media.author, createdAt: media.createdAt,
     });
   };
-  const sendReady = (socket: WebSocket, device: Device) => send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, ...(device.discordUserId ? { discordUserId: device.discordUserId } : {}) });
+  const identity = (device: Device) => ({ ...(device.discordUserId ? { discordUserId: device.discordUserId } : {}), ...(device.discordUserName ? { discordUserName: device.discordUserName } : {}) });
+  const sendReady = (socket: WebSocket, device: Device) => send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, ...identity(device) });
   const mentionedDevices = (channelId: string, userIds: readonly string[] | undefined): string[] | undefined => {
     if (userIds === undefined) return undefined;
     const mentioned = new Set(userIds);
@@ -112,8 +113,8 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!body.success) return reply.code(400).send({ error: 'Code invalide. Utilisez le code privé de /dropmeme.' });
     const device = store.linkDevice(sender.id, body.data.code);
     if (!device?.discordUserId) return reply.code(401).send({ error: 'Code expiré, déjà utilisé ou généré dans un autre salon. Relancez /dropmeme dans ce salon.' });
-    for (const [socket, peer] of peers) if (peer.id === device.id) { peer.discordUserId = device.discordUserId; sendReady(socket, peer); }
-    return reply.header('Cache-Control', 'no-store').send({ discordUserId: device.discordUserId });
+    for (const [socket, peer] of peers) if (peer.id === device.id) { const linked = { ...device, profile: peer.profile, protocol: peer.protocol, version: peer.version }; peers.set(socket, linked); sendReady(socket, linked); }
+    return reply.header('Cache-Control', 'no-store').send(identity(device));
   });
 
   app.post('/v2/send/text', { bodyLimit: 12_000 }, async (request, reply) => {
@@ -170,7 +171,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     const parsed = pairingRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Code ou ID de salon invalide.' });
     if (store.deviceCount() >= config.maxClients) return reply.code(503).send({ error: 'Nombre maximal d’appareils atteint.' });
-    let subscription: { channelId: string; channelName: string; discordUserId?: string } | undefined;
+    let subscription: Omit<Device, 'id'> | undefined;
     if ('code' in parsed.data) subscription = store.consumePairing(parsed.data.code);
     else if (config.joinKey && equalSecret(parsed.data.joinKey, config.joinKey) && config.allowedChannelIds.has(parsed.data.channelId)) {
       const channelName = await discord.channelName(parsed.data.channelId);
@@ -179,8 +180,8 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!subscription || !config.allowedChannelIds.has(subscription.channelId)) {
       return reply.code(401).send({ error: 'Invitation invalide, expirée ou salon non autorisé.' });
     }
-    const device = store.createDevice(subscription.channelId, subscription.channelName, subscription.discordUserId);
-    return reply.code(201).header('Cache-Control', 'no-store').send({ token: device.token, deviceId: device.id, channelId: device.channelId, channelName: device.channelName, ...(device.discordUserId ? { discordUserId: device.discordUserId } : {}) });
+    const device = store.createDevice(subscription.channelId, subscription.channelName, subscription.discordUserId, subscription.discordUserName);
+    return reply.code(201).header('Cache-Control', 'no-store').send({ token: device.token, deviceId: device.id, channelId: device.channelId, channelName: device.channelName, ...identity(device) });
   });
 
   app.delete('/v1/device', async (request, reply) => {

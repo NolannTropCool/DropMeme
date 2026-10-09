@@ -1,11 +1,13 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 
 const mode = process.argv[2];
 const root = JSON.parse(await readFile('package.json', 'utf8'));
 const [major, minor, patch] = root.version.split('.').map(Number);
 if (!['minor', 'patch', '--check'].includes(mode)) throw new Error('Usage : npm run version:app -- minor|patch|--check');
 const version = mode === 'minor' ? `${major}.${minor + 1}.0` : mode === 'patch' ? `${major}.${minor}.${patch + 1}` : root.version;
+// Fail before the Windows build: release-manifest.mjs only accepts this exact tag.
+if (mode === '--check' && process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `v${version}`) throw new Error(`Tag de publication incohérent : utilisez v${version} (reçu ${process.env.GITHUB_REF_NAME}).`);
 const paths = ['package.json', 'packages/shared/package.json', 'packages/server/package.json', 'packages/desktop/package.json', 'packages/desktop/src-tauri/tauri.conf.json'];
 for (const path of paths) {
   const value = JSON.parse(await readFile(path, 'utf8'));
@@ -28,7 +30,8 @@ for (const [path, pattern, replacement] of replacements) {
   if (mode === '--check') { if (updated !== source) throw new Error(`Version incohérente : ${path}`); }
   else await writeFile(path, updated);
 }
-if (mode !== '--check') execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--package-lock-only', '--ignore-scripts'], { stdio: 'inherit' });
+// Through a shell: Node refuses to spawn npm.cmd directly on Windows (EINVAL).
+if (mode !== '--check') execSync('npm install --package-lock-only --ignore-scripts', { stdio: 'inherit' });
 const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
 if (lock.version !== version || lock.packages[''].version !== version) throw new Error('package-lock.json incohérent.');
 for (const workspace of ['shared', 'server', 'desktop']) if (lock.packages[`packages/${workspace}`].version !== version) throw new Error(`Lockfile du workspace ${workspace} incohérent.`);

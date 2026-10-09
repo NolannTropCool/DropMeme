@@ -1,4 +1,10 @@
 export const changelog = [
+  { version: '0.4.0', changes: [
+    'Nouvelle interface en onglets : plus besoin de faire défiler les réglages.',
+    'Le pseudo du compte Discord lié par le code /dropmeme s’affiche dès l’abonnement.',
+    'Textes et légendes en style mème : Comic Sans blanc à contour noir, centrés et plus grands.',
+    'Le bouton de mise à jour indique la raison exacte d’un échec.',
+  ] },
   { version: '0.3.0', changes: [
     'Textes et GIF simultanés dans les mêmes zones ; vidéos ordinaires une par une.',
     'Les zones gardent leur ordre et leur numéro après modification.',

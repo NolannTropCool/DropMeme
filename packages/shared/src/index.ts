@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const snowflake = z.string().regex(/^\d{17,20}$/, 'ID Discord invalide');
-export const appVersion = '0.3.0';
+const discordUserName = z.string().min(1).max(100);
+export const appVersion = '0.4.0';
 export const protocolVersion = 2;
 export const mediaKind = z.enum(['image', 'video', 'audio', 'text']);
 export type MediaKind = z.infer<typeof mediaKind>;
@@ -68,7 +69,7 @@ export type MediaEvent = z.infer<typeof mediaEventSchema>;
 
 export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
-  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), discordUserId: snowflake.optional() }),
+  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), discordUserId: snowflake.optional(), discordUserName: discordUserName.optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
   z.object({ type: z.literal('error'), message: z.string() }),
@@ -89,7 +90,7 @@ export function supportsConcurrentDisplay(media: Pick<MediaEvent, 'kind' | 'name
 }
 
 export const deviceLinkRequestSchema = z.object({ code: z.string().regex(/^[A-Z0-9]{8}-[A-Z0-9]{8}$/) }).strict();
-export const deviceLinkResponseSchema = z.object({ discordUserId: snowflake });
+export const deviceLinkResponseSchema = z.object({ discordUserId: snowflake, discordUserName: discordUserName.optional() });
 
 export const pairingRequestSchema = z.union([
   z.object({ code: z.string().regex(/^[A-Z0-9]{8}-[A-Z0-9]{8}$/) }).strict(),
@@ -101,6 +102,7 @@ export const pairingResponseSchema = z.object({
   channelId: snowflake,
   channelName: z.string(),
   discordUserId: snowflake.optional(),
+  discordUserName: discordUserName.optional(),
 });
 export type PairingResponse = z.infer<typeof pairingResponseSchema>;
 

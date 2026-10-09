@@ -81,11 +81,11 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
     const editReply = vi.fn(); const deferReply = vi.fn();
     client.emit(Events.InteractionCreate, {
       isChatInputCommand: () => true, commandName: 'dropmeme', guildId, channelId,
-      user: { id: '523456789012345678' }, memberPermissions: { has: () => true }, deferReply, editReply,
+      user: { id: '523456789012345678', displayName: 'Bob' }, memberPermissions: { has: () => true }, deferReply, editReply,
     } as never);
     await vi.waitFor(() => expect(editReply).toHaveBeenCalledOnce());
     const privateCode = /`([A-F0-9]{8}-[A-F0-9]{8})`/.exec(editReply.mock.calls[0]![0] as string)![1]!;
-    expect(application.store.consumePairing(privateCode)).toMatchObject({ channelId, discordUserId: '523456789012345678' });
+    expect(application.store.consumePairing(privateCode)).toMatchObject({ channelId, discordUserId: '523456789012345678', discordUserName: 'Bob' });
     expect(deferReply).toHaveBeenCalledWith(expect.objectContaining({ flags: 64 }));
     const original = makeMessage(client, guildId, channelId);
     original.author = Reflect.construct(User, [client, { id: appId, username: 'Alice', discriminator: '0', global_name: 'Alice' }]) as User;

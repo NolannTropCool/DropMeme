@@ -61,8 +61,9 @@ function startConnection(token: string): void {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
       social.setOnline(event.protocol === 2);
       identity.setOnline(event.protocol === 2, event.version);
-      if (preferences.subscription && preferences.subscription.discordUserId !== event.discordUserId) {
-        preferences.subscription.discordUserId = event.discordUserId;
+      const subscription = preferences.subscription;
+      if (subscription && (subscription.discordUserId !== event.discordUserId || subscription.discordUserName !== event.discordUserName)) {
+        subscription.discordUserId = event.discordUserId; subscription.discordUserName = event.discordUserName;
         identity.render();
         void save().catch(() => message('Impossible d’enregistrer la liaison Discord.'));
       }
@@ -81,6 +82,16 @@ function startConnection(token: string): void {
   }, { name: preferences.settings.displayName, acceptDirect: preferences.settings.acceptDirect });
   connection.start(); subscriptionUi();
 }
+
+const pages = [...document.querySelectorAll<HTMLElement>('.page')];
+const navigation = [...document.querySelectorAll<HTMLButtonElement>('.nav [data-page]')];
+function showPage(name: string): void {
+  for (const page of pages) page.hidden = page.id !== `page-${name}`;
+  for (const button of navigation) {
+    if (button.dataset.page === name) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  }
+}
+for (const button of navigation) button.onclick = () => showPage(button.dataset.page!);
 
 function setMode(value: 'code' | 'channel'): void {
   mode = value; $('code-fields').hidden = value !== 'code'; $('channel-fields').hidden = value !== 'channel';
@@ -203,6 +214,7 @@ function renderSettings(): void {
   $('volume-value').textContent = `${preferences.settings.volume}%`;
   input('volume').disabled = !preferences.settings.sound;
   input('displayName').value = preferences.settings.displayName;
+  $('greeting-name').textContent = preferences.settings.displayName;
   $<HTMLSelectElement>('multiPlacement').value = preferences.settings.multiPlacement;
   $<HTMLSelectElement>('captionPosition').value = preferences.settings.captionPosition;
   $('multi-fields').hidden = !preferences.settings.multiDisplay;
@@ -239,7 +251,7 @@ for (const key of [...numbers, ...booleans, 'position', 'monitor', 'displayName'
     if (geometryChanged) { queue.clear(); previews.clear(); previewing = false; void display.hide(); }
     preferences.settings = result.data; queue.configure(result.data); renderSettings();
     display.updateSettings(result.data);
-    if (key === 'displayName' || key === 'acceptDirect') connection?.setProfile({ name: result.data.displayName, acceptDirect: result.data.acceptDirect });
+    if (key === 'displayName' || key === 'acceptDirect') { connection?.setProfile({ name: result.data.displayName, acceptDirect: result.data.acceptDirect }); identity.render(); }
     void save().then(() => { $('saved').textContent = 'Réglages enregistrés.'; }).catch(() => { $('saved').textContent = 'Enregistrement impossible.'; });
   });
 }
@@ -252,6 +264,8 @@ input('autostart').onchange = async () => {
 };
 
 async function initialize(): Promise<void> {
+  // First: a failing overlay or monitor setup must not leave the update button unwired.
+  initializeUpdates();
   try { preferences = await readPreferences(); }
   catch { message('Les préférences ne peuvent pas être chargées. Réglages par défaut appliqués.'); }
   queue.configure(preferences.settings);
@@ -272,7 +286,6 @@ async function initialize(): Promise<void> {
   }
   if (![...$<HTMLSelectElement>('monitor').options].some(option => option.value === preferences.settings.monitor)) preferences.settings.monitor = 'primary';
   renderSettings(); subscriptionUi();
-  initializeUpdates();
   if (isTauri()) {
     input('autostart').checked = await isEnabled();
     await getCurrentWindow().onCloseRequested(event => { event.preventDefault(); void getCurrentWindow().hide(); });
