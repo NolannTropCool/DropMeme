@@ -1,4 +1,4 @@
-import { isAnimation, type MediaEvent, type Settings } from '@dropmeme/shared';
+import { supportsConcurrentDisplay, type MediaEvent, type Settings } from '@dropmeme/shared';
 
 /** FIFO with bounded memory. Pause discards incoming media rather than replaying a flood. */
 export class MediaQueue {
@@ -42,7 +42,7 @@ export class MediaQueue {
   private canStart(media: MediaEvent): boolean {
     if (!this.active.size) return true;
     const limit = this.settings.multiPlacement === 'zones' ? Math.min(this.settings.maxSimultaneous, Math.max(1, this.settings.zones.length)) : this.settings.maxSimultaneous;
-    return this.settings.multiDisplay && isAnimation(media) && [...this.active.values()].every(isAnimation) && this.active.size < limit;
+    return this.settings.multiDisplay && supportsConcurrentDisplay(media) && [...this.active.values()].every(supportsConcurrentDisplay) && this.active.size < limit;
   }
 
   private next(): void {

@@ -6,7 +6,7 @@ import type { DisplayPayload } from './display.js';
 import './overlay.css';
 
 const root = document.querySelector<HTMLDivElement>('#media-root')!;
-interface Playing { container: HTMLDivElement; author: HTMLElement; player?: HTMLMediaElement; timer?: ReturnType<typeof setTimeout>; loading?: ReturnType<typeof setTimeout> }
+interface Playing { container: HTMLDivElement; author: HTMLElement; loaded: boolean; texts: boolean; caption?: HTMLElement; player?: HTMLMediaElement; timer?: ReturnType<typeof setTimeout>; loading?: ReturnType<typeof setTimeout> }
 const playing = new Map<string, Playing>();
 
 function stop(id?: string): void {
@@ -25,6 +25,9 @@ function done(id: string, error?: string): void {
 function configure(settings: Settings): void {
   for (const value of playing.values()) {
     value.container.style.opacity = String(settings.opacity / 100); value.author.hidden = !settings.showAuthor;
+    value.container.dataset.captionPosition = settings.captionPosition;
+    value.texts = settings.texts;
+    if (value.caption) value.caption.hidden = !value.loaded || !settings.texts;
     if (value.player) { value.player.muted = !settings.sound; value.player.volume = settings.volume / 100; }
   }
 }
@@ -37,22 +40,26 @@ function play(payload: DisplayPayload): void {
   if (!payload.box || !Object.values(payload.box).every(Number.isFinite)) return;
   stop(media.id);
   const container = document.createElement('div'); container.className = 'media-item'; container.dataset.mediaId = media.id;
+  container.dataset.captionPosition = settings.captionPosition;
   Object.assign(container.style, { left: `${payload.box.x}px`, top: `${payload.box.y}px`, width: `${payload.box.width}px`, height: `${payload.box.height}px`, opacity: String(settings.opacity / 100) });
+  const content = document.createElement('div'); content.className = 'media-content'; container.append(content);
   const author = document.createElement('div'); author.className = 'media-author'; author.textContent = `De ${media.author}`; author.hidden = !settings.showAuthor;
-  const value: Playing = { container, author }; playing.set(media.id, value);
+  const value: Playing = { container, author, loaded: false, texts: settings.texts }; playing.set(media.id, value);
   const loaded = () => {
     if (playing.get(media.id) !== value) return;
     clearTimeout(value.loading);
+    value.loaded = true;
+    if (value.caption) value.caption.hidden = !value.texts;
     if (!value.timer) value.timer = setTimeout(() => done(media.id), playbackDuration(media, settings) * 1000);
   };
   value.loading = setTimeout(() => done(media.id, 'Chargement du média trop long.'), media.kind === 'video' ? 60_000 : 15_000);
   if (media.kind === 'text') {
     const text = document.createElement('div'); text.className = 'text-tile'; text.textContent = media.text!;
-    container.append(text); loaded();
+    content.append(text); loaded();
   } else if (media.kind === 'image') {
     const image = document.createElement('img'); image.alt = media.name;
     image.onload = loaded; image.onerror = () => { if (playing.get(media.id) === value) done(media.id, 'Image non lisible.'); };
-    image.src = media.url; container.append(image);
+    image.src = media.url; content.append(image);
   } else {
     const element = document.createElement(media.kind === 'video' ? 'video' : 'audio'); value.player = element;
     element.muted = !settings.sound; element.volume = settings.volume / 100; element.autoplay = true; element.preload = 'auto';
@@ -65,10 +72,15 @@ function play(payload: DisplayPayload): void {
       loaded(); void element.play().catch(() => { if (playing.get(media.id) === value) done(media.id, 'Lecture automatique refusée. Vérifiez les réglages du son.'); });
     };
     element.src = media.url;
-    if (media.kind === 'audio') { const tile = document.createElement('div'); tile.className = 'audio-tile'; tile.textContent = `♪ ${media.name}`; tile.append(element); container.append(tile); }
-    else container.append(element);
+    if (media.kind === 'audio') { const tile = document.createElement('div'); tile.className = 'audio-tile'; tile.textContent = `♪ ${media.name}`; tile.append(element); content.append(tile); }
+    else content.append(element);
   }
-  container.append(author); root.append(container);
+  content.append(author);
+  if (media.caption && media.kind !== 'text') {
+    const caption = document.createElement('div'); caption.className = 'media-caption'; caption.textContent = media.caption;
+    caption.hidden = !value.loaded || !value.texts; value.caption = caption; container.append(caption);
+  }
+  root.append(container);
 }
 
 if (isTauri()) {

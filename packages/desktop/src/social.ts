@@ -69,12 +69,11 @@ export class Social {
         }
         sent++;
       };
-      if (text) { await request('/v2/send/text', JSON.stringify({ text, recipientId }), true); textInput.value = ''; }
       if (file) {
-        const body = new FormData(); body.append('file', file);
+        const body = new FormData(); if (text) body.append('caption', text); body.append('file', file);
         await request(`/v2/send/file${recipientId ? `?recipientId=${encodeURIComponent(recipientId)}` : ''}`, body);
-        fileInput.value = '';
-      }
+        fileInput.value = ''; textInput.value = '';
+      } else if (text) { await request('/v2/send/text', JSON.stringify({ text, recipientId }), true); textInput.value = ''; }
       status.textContent = `${sent} envoi(s) transmis${recipientId ? ' au destinataire' : ' au salon'}.`;
     } catch (error) {
       status.textContent = `${sent ? `${sent} envoi transmis. ` : ''}${error instanceof Error ? error.message : 'Envoi impossible.'}`;

@@ -6,6 +6,28 @@ function event(id: string, kind: MediaEvent['kind'] = 'image'): MediaEvent {
   return { type: 'media', id, channelId: '123456789012345678', kind, url: `https://example.com/v1/media/${id}`, name: id, author: 'Alice', createdAt: Date.now() };
 }
 describe('bounded media queue', () => {
+  test('texts share GIF slots while two ordinary videos remain exclusive and FIFO', () => {
+    const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 3 }, vi.fn());
+    queue.enqueue({ ...event('gif'), animation: true });
+    queue.enqueue({ ...event('text', 'text'), text: 'Bonjour' });
+    queue.enqueue({ ...event('text2', 'text'), text: 'Encore' });
+    queue.enqueue(event('v1', 'video')); queue.enqueue(event('v2', 'video'));
+    queue.enqueue({ ...event('text3', 'text'), text: 'Après' });
+    expect(queue.currentIds()).toEqual(['gif', 'text', 'text2']);
+    queue.complete('text'); queue.complete('gif');
+    expect(queue.currentIds()).toEqual(['text2']);
+    queue.complete('text2'); expect(queue.currentIds()).toEqual(['v1']);
+    queue.complete('v1'); expect(queue.currentIds()).toEqual(['v2']);
+    queue.complete('v2'); expect(queue.currentIds()).toEqual(['text3']);
+  });
+  test('text concurrency respects the opt-in and the number of custom zones', () => {
+    for (const settings of [defaultSettings, { ...defaultSettings, multiDisplay: true, multiPlacement: 'zones' as const, zones: [{ id: 'one', monitor: 'primary', position: 'custom' as const, x: 0, y: 0, width: 320, height: 240 }] }]) {
+      const queue = new MediaQueue(settings, vi.fn());
+      queue.enqueue({ ...event('a', 'text'), text: 'A' }); queue.enqueue({ ...event('b', 'text'), text: 'B' });
+      expect(queue.currentIds()).toEqual(['a']);
+      queue.complete('a'); expect(queue.currentIds()).toEqual(['b']);
+    }
+  });
   test('parallel GIFs release only their own slot and retain FIFO ordering for ordinary videos', () => {
     const display = vi.fn(); const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 2 }, display);
     const gif = (id: string) => ({ ...event(id), animation: true });

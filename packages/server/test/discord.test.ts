@@ -78,6 +78,15 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
   const url = 'https://media.tenor.com/fixtureAAAAC/cat.mp4';
   try {
     await bot.start(application);
+    const editReply = vi.fn(); const deferReply = vi.fn();
+    client.emit(Events.InteractionCreate, {
+      isChatInputCommand: () => true, commandName: 'dropmeme', guildId, channelId,
+      user: { id: '523456789012345678' }, memberPermissions: { has: () => true }, deferReply, editReply,
+    } as never);
+    await vi.waitFor(() => expect(editReply).toHaveBeenCalledOnce());
+    const privateCode = /`([A-F0-9]{8}-[A-F0-9]{8})`/.exec(editReply.mock.calls[0]![0] as string)![1]!;
+    expect(application.store.consumePairing(privateCode)).toMatchObject({ channelId, discordUserId: '523456789012345678' });
+    expect(deferReply).toHaveBeenCalledWith(expect.objectContaining({ flags: 64 }));
     const original = makeMessage(client, guildId, channelId);
     original.author = Reflect.construct(User, [client, { id: appId, username: 'Alice', discriminator: '0', global_name: 'Alice' }]) as User;
     original.content = 'https://tenor.com/view/fixture';
@@ -104,5 +113,26 @@ test('real discord.js partial messageUpdate forwards a late GIF without fetching
     expect(publishText.mock.results[0]?.value).toBe(true);
     client.emit(Events.MessageUpdate, text, text);
     expect(publishText.mock.results[1]?.value).toBe(false);
+    // Real partial embed updates must preserve explicit routing and the sender's caption.
+    const privateOriginal = makeMessage(client, guildId, channelId);
+    Object.defineProperty(privateOriginal, 'id', { value: (BigInt(original.id) + 100n).toString() });
+    privateOriginal.author = original.author;
+    privateOriginal.content = 'Regarde <@323456789012345678> <@!423456789012345678> ! https://tenor.com/view/private';
+    client.emit(Events.MessageCreate, privateOriginal);
+    const privateUpdate = makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }]);
+    Object.defineProperty(privateUpdate, 'id', { value: privateOriginal.id });
+    client.emit(Events.MessageUpdate, privateOriginal, privateUpdate);
+    expect(publish).toHaveBeenLastCalledWith(channelId, 'Alice', expect.objectContaining({ url, loop: true, caption: 'Regarde !' }), ['323456789012345678', '423456789012345678']);
+    const calls = publish.mock.calls.length;
+    const unknown = makeMessage(client, guildId, channelId, [{ type: EmbedType.GIFV, video: { url } }]);
+    Object.defineProperty(unknown, 'id', { value: (BigInt(original.id) + 200n).toString() });
+    client.emit(Events.MessageUpdate, unknown, unknown);
+    expect(publish).toHaveBeenCalledTimes(calls);
+    const attachment = makeMessage(client, guildId, channelId);
+    Object.defineProperty(attachment, 'id', { value: (BigInt(original.id) + 300n).toString() });
+    attachment.author = original.author; attachment.content = 'Une vidéo <@323456789012345678>';
+    attachment.attachments.set('file', { id: 'file', url: 'https://cdn.discordapp.com/attachments/1/2/cat.mp4', name: 'cat.mp4', contentType: 'video/mp4', size: 10 } as never);
+    client.emit(Events.MessageCreate, attachment);
+    expect(publish).toHaveBeenLastCalledWith(channelId, 'Alice', expect.objectContaining({ name: 'cat.mp4', caption: 'Une vidéo' }), ['323456789012345678']);
   } finally { await bot.stop(); await application.app.close(); }
 });

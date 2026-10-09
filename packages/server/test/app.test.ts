@@ -55,6 +55,69 @@ async function nextMedia(token: string): Promise<MediaEvent> {
 }
 
 describe('HTTP and real WebSocket integration', () => {
+  test('private codes bind existing or new devices; mentions reach only consenting linked devices in the channel', async () => {
+    const userA = '323456789012345678'; const userB = '423456789012345678';
+    const existing = await pair(); const a = await open(existing.token, { name: 'Alice', acceptDirect: true });
+    const linkCode = application.store.createPairing(channelA, 'memes', Date.now(), userA);
+    const link = (payload: unknown) => application.app.inject({ method: 'POST', url: '/v2/device/link', headers: { authorization: `Bearer ${existing.token}` }, payload });
+    expect((await link({ code: linkCode, discordUserId: userB })).statusCode).toBe(400);
+    const linked = await link({ code: linkCode }); expect(linked.statusCode).toBe(200); expect(linked.json()).toEqual({ discordUserId: userA });
+    expect(application.store.authenticate(existing.token)?.discordUserId).toBe(userA);
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'ready').at(-1)).toMatchObject({ discordUserId: userA }));
+    expect((await link({ code: linkCode })).statusCode).toBe(401);
+    const code = application.store.createPairing(channelA, 'memes', Date.now(), userB);
+    const paired = await application.app.inject({ method: 'POST', url: '/v1/pair', payload: { code } });
+    expect(paired.statusCode).toBe(201); expect(paired.json().discordUserId).toBe(userB);
+    const b = await open((paired.json() as PairingResponse).token, { name: 'Bob', acceptDirect: true });
+    const refused = application.store.createDevice(channelA, 'memes', userA);
+    const c = await open(refused.token, { name: 'Refus', acceptDirect: false });
+    const unlinked = await open((await pair()).token, { name: 'Sans compte', acceptDirect: true });
+    const duplicateUser = application.store.createDevice(channelA, 'memes', userA);
+    const second = await open(duplicateUser.token, { name: 'Autre écran', acceptDirect: true });
+    const crossChannel = application.store.createDevice(channelB, 'other', userA);
+    const other = await open(crossChannel.token, { name: 'Autre salon', acceptDirect: true });
+    expect(application.publish(channelA, 'Discord', { ...image, caption: 'Bonjour !' }, [userA, userB, userA])).toBe(true);
+    await vi.waitFor(() => {
+      for (const client of [a, b, second]) expect(client.events.filter(event => event.type === 'media')).toHaveLength(1);
+    });
+    for (const client of [c, unlinked, other]) expect(client.events.filter(event => event.type === 'media')).toHaveLength(0);
+    const media = a.events.find(event => event.type === 'media') as MediaEvent;
+    expect(media.caption).toBe('Bonjour !');
+    const resource = new URL(media.url);
+    expect((await application.app.inject(resource.pathname + resource.search)).statusCode).toBe(200);
+    resource.searchParams.set('device', refused.id);
+    resource.searchParams.set('ticket', (await import('node:crypto')).createHmac('sha256', application.store.signingKey).update(`${media.id}:${refused.id}:${resource.searchParams.get('expires')}`).digest('base64url'));
+    expect((await application.app.inject(resource.pathname + resource.search)).statusCode).toBe(404);
+    // Unknown/offline people and empty recipient sets must never fall back to a channel broadcast.
+    const offline = application.store.createDevice(channelA, 'memes', '523456789012345678');
+    expect(application.publish(channelA, 'Discord', image, [offline.discordUserId!, '623456789012345678'])).toBe(true);
+    expect(application.publishText(channelA, 'Discord', 'Privé', 'private-text', [])).toBe(true);
+    application.publishStatus();
+    await vi.waitFor(() => expect(other.events.at(-1)?.type).toBe('status'));
+    for (const client of [a, b, second]) expect(client.events.filter(event => event.type === 'media')).toHaveLength(1);
+    for (const client of [c, unlinked, other]) expect(client.events.filter(event => event.type === 'media')).toHaveLength(0);
+    b.socket.send(JSON.stringify({ type: 'profile', profile: { name: 'Bob', acceptDirect: false } }));
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'presence').at(-1)).toMatchObject({ peers: expect.arrayContaining([expect.objectContaining({ name: 'Bob', acceptDirect: false })]) }));
+    application.publishText(channelA, 'Discord', 'Seulement Alice', 'alice-text', [userA, userB]);
+    await vi.waitFor(() => expect(a.events.filter(event => event.type === 'media')).toHaveLength(2));
+    expect(b.events.filter(event => event.type === 'media')).toHaveLength(1);
+  });
+
+  test('file captions produce a single media event and strip mentions without truncating Unicode', async () => {
+    const sender = await pair(); const client = await open(sender.token, { name: 'Alice', acceptDirect: false });
+    const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    const upload = (caption: string) => application.app.inject({ method: 'POST', url: '/v2/send/file', headers: { authorization: `Bearer ${sender.token}`, 'content-type': 'multipart/form-data; boundary=caption' }, payload: Buffer.concat([
+      Buffer.from(`--caption\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n--caption\r\nContent-Disposition: form-data; name="file"; filename="one.gif"\r\nContent-Type: image/gif\r\n\r\n`), gif, Buffer.from('\r\n--caption--\r\n'),
+    ]) });
+    expect((await upload('Bonjour <@323456789012345678> ! <img src=x>')).statusCode).toBe(201);
+    await vi.waitFor(() => expect(client.events.filter(event => event.type === 'media')).toHaveLength(1));
+    expect(client.events.find(event => event.type === 'media')).toMatchObject({ kind: 'image', animation: true, caption: 'Bonjour ! <img src=x>' });
+    expect((await upload('é'.repeat(2000))).statusCode).toBe(201);
+    await vi.waitFor(() => expect(client.events.filter(event => event.type === 'media')).toHaveLength(2));
+    expect((client.events.filter(event => event.type === 'media').at(-1) as MediaEvent).caption).toHaveLength(2000);
+    expect((await upload('a'.repeat(2001))).statusCode).toBe(400);
+  });
+
   test('presence and consent isolate direct text and its resource from other devices', async () => {
     const sender = await pair(); const recipient = await pair(); const other = await pair(channelB);
     const a = await open(sender.token, { name: 'Alice', acceptDirect: false });

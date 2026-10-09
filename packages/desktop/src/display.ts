@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { availableMonitors, primaryMonitor } from '@tauri-apps/api/window';
-import { isAnimation, type MediaEvent, type Settings } from '@dropmeme/shared';
+import { supportsConcurrentDisplay, type MediaEvent, type Settings } from '@dropmeme/shared';
 import { overlayGeometry, type DisplayRect, type ScreenRect } from './geometry.js';
 import { randomGeometry } from './multi-geometry.js';
 import { openOverlay } from './native-overlay.js';
@@ -12,7 +12,7 @@ export interface DisplayPayload { media: MediaEvent; settings: Settings; preview
 interface Surface { label: string; ready: Promise<void>; window?: WebviewWindow; frame?: HTMLIFrameElement; failed?: boolean }
 interface ActiveDisplay { surface: string; box: DisplayRect; zone?: string }
 
-/** One transparent webview per monitor, shared by concurrent GIFs; never one renderer per GIF. */
+/** One transparent webview per monitor, shared by concurrent GIFs and text. */
 export class Display {
   private readonly surfaces = new Map<string, Surface>();
   private readonly active = new Map<string, ActiveDisplay>();
@@ -59,7 +59,7 @@ export class Display {
 
   async show(media: MediaEvent, settings: Settings, preview = false): Promise<void> {
     const epoch = this.epoch;
-    const parallel = settings.multiDisplay && isAnimation(media);
+    const parallel = settings.multiDisplay && supportsConcurrentDisplay(media);
     const used = new Set([...this.active.values()].map(value => value.zone));
     const zone = parallel && settings.multiPlacement === 'zones' ? settings.zones.find(value => !used.has(value.id)) : undefined;
     this.active.set(media.id, { surface: 'pending', box: { x: 0, y: 0, width: 0, height: 0 }, ...(zone ? { zone: zone.id } : {}) });

@@ -6,6 +6,7 @@ import { Embed } from '/app/node_modules/discord.js/src/index.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { convertMov } from '/app/packages/server/dist/convert.js';
+import { appVersion } from '/app/packages/shared/dist/index.js';
 
 // Real multi-frame MOV conversion with the production FFmpeg binary and read-only container.
 const folder = await mkdtemp('/tmp/dropmeme-smoke-');
@@ -50,7 +51,7 @@ try {
   socket = new WebSocket(config.publicUrl.replace('http:', 'ws:') + '/v1/events');
   await new Promise((resolve, reject) => {
     socket.on('error', reject);
-    socket.once('open', () => socket.send(JSON.stringify({ type: 'authenticate', token: device.token, protocol: 2, version: '0.2.0', profile: { name: 'Alice', acceptDirect: false } })));
+    socket.once('open', () => socket.send(JSON.stringify({ type: 'authenticate', token: device.token, protocol: 2, version: appVersion, profile: { name: 'Alice', acceptDirect: false } })));
     socket.once('message', data => { assert.equal(JSON.parse(data).type, 'ready'); resolve(); });
   });
   const next = nextMedia();
@@ -70,16 +71,29 @@ try {
   const gifResponse = await fetch(gif.url);
   assert.equal(gifResponse.status, 200); assert.equal(gifResponse.headers.get('content-type'), 'video/mp4');
   const nextMov = nextMedia();
-  const form = new FormData(); form.append('file', new Blob([movFixture], { type: 'video/quicktime' }), 'animation.mov');
+  const form = new FormData(); form.append('caption', 'Une vidéo <@223456789012345678> !'); form.append('file', new Blob([movFixture], { type: 'video/quicktime' }), 'animation.mov');
   const uploaded = await fetch(`${config.publicUrl}/v2/send/file`, { method: 'POST', headers: { Authorization: `Bearer ${device.token}` }, body: form });
   assert.equal(uploaded.status, 201);
   const mov = await nextMov; assert.equal(mov.kind, 'video'); assert.equal(mov.name, 'animation.mp4'); assert.equal(mov.author, 'Alice');
+  assert.equal(mov.caption, 'Une vidéo !');
   const movie = await fetch(mov.url); assert.equal(movie.headers.get('content-type'), 'video/mp4');
   assert.equal(Buffer.from(await movie.arrayBuffer()).subarray(4, 8).toString(), 'ftyp');
+  const userId = '223456789012345678';
+  const code = application.store.createPairing(channelId, 'memes', Date.now(), userId);
+  const linked = await fetch(`${config.publicUrl}/v2/device/link`, { method: 'POST', headers: { Authorization: `Bearer ${device.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+  assert.equal(linked.status, 200); assert.equal((await linked.json()).discordUserId, userId);
+  assert.equal(application.store.authenticate(device.token).discordUserId, userId);
+  const consent = new Promise(resolve => {
+    const handler = data => { const event = JSON.parse(data); if (event.type === 'presence' && event.peers.some(peer => peer.id === device.deviceId && peer.acceptDirect)) { socket.off('message', handler); resolve(); } };
+    socket.on('message', handler);
+  });
+  socket.send(JSON.stringify({ type: 'profile', profile: { name: 'Alice', acceptDirect: true } })); await consent;
+  const targeted = nextMedia(); application.publishText(channelId, 'Discord', 'Message privé', 'direct-text', [userId]);
+  assert.equal((await targeted).text, 'Message privé');
   const revoke = await fetch(`${config.publicUrl}/v1/device`, { method: 'DELETE', headers: { Authorization: `Bearer ${device.token}` } });
   assert.equal(revoke.status, 204);
   assert.equal((await fetch(media.url)).status, 404);
-  console.log('Production image: real MOV/H.264 conversion, SQLite, HTTP pairing, WebSocket, Discord GIF embeds, media proxy and revocation passed.');
+  console.log('Production image: MOV/H.264 conversion with caption, SQLite, HTTP pairing and identity linking, consenting Discord targets, WebSocket, GIF embeds, media proxy and revocation passed.');
 } finally {
   socket?.terminate(); await application.app.close();
 }

@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits, MessageFlags, Options, Partials, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, type Message, type PartialMessage } from 'discord.js';
 import { extractDiscordMedia } from './discord-media.js';
+import { displayText, mediaCaption, mentionedUsers } from './discord-content.js';
 import type { Config } from './config.js';
 import type { Application, DiscordBridge } from './app.js';
 
@@ -49,7 +50,7 @@ export function createDiscordClient(): Client {
 
 export class DiscordBot implements DiscordBridge {
   private application: Application | undefined;
-  private readonly authors = new Map<string, { name: string; time: number }>();
+  private readonly messages = new Map<string, { name: string; content: string; recipientIds?: string[]; time: number }>();
 
   constructor(private readonly config: Config, private readonly client: Client = createDiscordClient()) {}
   connected(): boolean { return this.client.isReady(); }
@@ -81,8 +82,8 @@ export class DiscordBot implements DiscordBridge {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const name = await this.channelName(interaction.channelId);
         if (!name) { await interaction.editReply('Le bot ne peut pas accéder à ce salon.'); return; }
-        const code = application.store.createPairing(interaction.channelId, name);
-        await interaction.editReply(`Dans DropMeme, utilisez le serveur **${this.config.publicUrl}** et ce code :\n\`${code}\`\nValable 10 minutes, pour un seul appareil. Ne partagez ce code qu’avec une personne autorisée.`);
+        const code = application.store.createPairing(interaction.channelId, name, Date.now(), interaction.user.id);
+        await interaction.editReply(`Dans DropMeme, utilisez le serveur **${this.config.publicUrl}** et ce code :\n\`${code}\`\nIl permet de vous abonner ou de lier un appareil déjà abonné à votre compte Discord. Valable 10 minutes, pour un seul appareil. Gardez-le privé : les médias qui vous mentionnent seront envoyés à cet appareil s’il accepte les envois directs.`);
       } catch { application.app.log.warn('Discord pairing command failed'); }
     });
     await registerCommand(this.config);
@@ -99,15 +100,29 @@ export class DiscordBot implements DiscordBridge {
 
   private forward(message: Message | PartialMessage): void {
     if (!this.application || message.guildId !== this.config.guildId || !this.config.allowedChannelIds.has(message.channelId)) return;
-    // Ignore history; names are retained briefly for delayed partial embed updates.
+    // Preserve routing as well as the caption for GIF embeds received after the original message.
     if (Date.now() - message.createdTimestamp > 5 * 60_000) return;
-    for (const [id, value] of this.authors) if (Date.now() - value.time > 5 * 60_000) this.authors.delete(id);
-    const author = message.member?.displayName ?? message.author?.displayName ?? this.authors.get(message.id)?.name ?? 'Discord';
-    if (message.author) this.authors.set(message.id, { name: author, time: Date.now() });
-    if (this.authors.size > 500) this.authors.delete(this.authors.keys().next().value!);
-    for (const media of extractDiscordMedia(message)) this.application.publish(message.channelId, author, media);
-    if (message.content?.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(message.content)) {
-      this.application.publishText(message.channelId, author, message.content.slice(0, 2000), `${message.id}:text`);
+    for (const [id, value] of this.messages) if (Date.now() - value.time > 5 * 60_000) this.messages.delete(id);
+    const previous = this.messages.get(message.id);
+    // An uncached partial cannot establish whether this was a private mention. Never broadcast it.
+    if (message.content === null && !previous) return;
+    const author = message.member?.displayName ?? message.author?.displayName ?? previous?.name ?? 'Discord';
+    const content = message.content ?? previous!.content;
+    const mentioned = message.content !== null ? mentionedUsers(content) : previous?.recipientIds;
+    const recipientIds = mentioned?.length ? mentioned : undefined;
+    this.messages.set(message.id, { name: author, content: content.slice(0, 2000), ...(recipientIds ? { recipientIds } : {}), time: Date.now() });
+    if (this.messages.size > 500) this.messages.delete(this.messages.keys().next().value!);
+    const media = extractDiscordMedia(message);
+    const caption = mediaCaption(content, media, message.embeds);
+    for (const item of media) {
+      const input = { ...item, ...(caption ? { caption } : {}) };
+      if (recipientIds) this.application.publish(message.channelId, author, input, recipientIds);
+      else this.application.publish(message.channelId, author, input);
+    }
+    if (content.trim() && !message.attachments.size && !message.embeds.length && !/https?:\/\//i.test(content)) {
+      const text = displayText(content);
+      if (recipientIds) this.application.publishText(message.channelId, author, text, `${message.id}:text`, recipientIds);
+      else this.application.publishText(message.channelId, author, text, `${message.id}:text`);
     }
   }
 

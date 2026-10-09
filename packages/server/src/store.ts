@@ -3,9 +3,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export interface Device { id: string; channelId: string; channelName: string }
-interface DeviceRow { id: string; channel_id: string; channel_name: string }
-interface PairRow { channel_id: string; channel_name: string; expires_at: number }
+export interface Device { id: string; channelId: string; channelName: string; discordUserId?: string }
+interface DeviceRow { id: string; channel_id: string; channel_name: string; discord_user_id: string | null }
+interface PairRow { channel_id: string; channel_name: string; expires_at: number; discord_user_id: string | null }
+const deviceFromRow = (row: DeviceRow): Device => ({ id: row.id, channelId: row.channel_id, channelName: row.channel_name, ...(row.discord_user_id ? { discordUserId: row.discord_user_id } : {}) });
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export function equalSecret(left: string, right: string): boolean {
@@ -25,14 +26,20 @@ export class Store {
       PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS devices (
         id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
-        channel_id TEXT NOT NULL, channel_name TEXT NOT NULL, created_at INTEGER NOT NULL
+        channel_id TEXT NOT NULL, channel_name TEXT NOT NULL, created_at INTEGER NOT NULL,
+        discord_user_id TEXT
       );
       CREATE TABLE IF NOT EXISTS pairing (
         code_hash TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
-        channel_name TEXT NOT NULL, expires_at INTEGER NOT NULL
+        channel_name TEXT NOT NULL, expires_at INTEGER NOT NULL, discord_user_id TEXT
       );
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
+    // Existing tokens and invitations survive the 0.2 → 0.3 migration, initially unlinked.
+    for (const table of ['devices', 'pairing']) {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+      if (!columns.some(column => column.name === 'discord_user_id')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN discord_user_id TEXT`);
+    }
     const existing = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('signing_key') as { value: string } | undefined;
     if (existing) this.signingKey = Buffer.from(existing.value, 'hex');
     else {
@@ -41,38 +48,52 @@ export class Store {
     }
   }
 
-  createPairing(channelId: string, channelName: string, now = Date.now()): string {
+  createPairing(channelId: string, channelName: string, now = Date.now(), discordUserId?: string): string {
     this.db.prepare('DELETE FROM pairing WHERE expires_at <= ?').run(now);
     // Multiple users can pair in parallel; keep at most 100 live invitations per channel.
     this.db.prepare(`DELETE FROM pairing WHERE channel_id = ? AND code_hash NOT IN (
       SELECT code_hash FROM pairing WHERE channel_id = ? ORDER BY expires_at DESC LIMIT 99
     )`).run(channelId, channelId);
     const code = `${randomBytes(4).toString('hex')}-${randomBytes(4).toString('hex')}`.toUpperCase();
-    this.db.prepare('INSERT INTO pairing VALUES (?, ?, ?, ?)').run(hash(code), channelId, channelName, now + 10 * 60_000);
+    this.db.prepare('INSERT INTO pairing (code_hash, channel_id, channel_name, expires_at, discord_user_id) VALUES (?, ?, ?, ?, ?)').run(hash(code), channelId, channelName, now + 10 * 60_000, discordUserId ?? null);
     return code;
   }
 
-  consumePairing(code: string, now = Date.now()): { channelId: string; channelName: string } | undefined {
+  consumePairing(code: string, now = Date.now()): { channelId: string; channelName: string; discordUserId?: string } | undefined {
     const row = this.db.prepare('DELETE FROM pairing WHERE code_hash = ? RETURNING *').get(hash(code)) as PairRow | undefined;
     if (!row || row.expires_at <= now) return undefined;
-    return { channelId: row.channel_id, channelName: row.channel_name };
+    return { channelId: row.channel_id, channelName: row.channel_name, ...(row.discord_user_id ? { discordUserId: row.discord_user_id } : {}) };
   }
 
-  createDevice(channelId: string, channelName: string): Device & { token: string } {
+  createDevice(channelId: string, channelName: string, discordUserId?: string): Device & { token: string } {
     const id = randomUUID();
     const token = randomBytes(32).toString('base64url');
-    this.db.prepare('INSERT INTO devices VALUES (?, ?, ?, ?, ?)').run(id, hash(token), channelId, channelName, Date.now());
-    return { id, token, channelId, channelName };
+    this.db.prepare('INSERT INTO devices (id, token_hash, channel_id, channel_name, created_at, discord_user_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, hash(token), channelId, channelName, Date.now(), discordUserId ?? null);
+    return { id, token, channelId, channelName, ...(discordUserId ? { discordUserId } : {}) };
   }
 
   authenticate(token: string): Device | undefined {
-    const row = this.db.prepare('SELECT id, channel_id, channel_name FROM devices WHERE token_hash = ?').get(hash(token)) as DeviceRow | undefined;
-    return row && { id: row.id, channelId: row.channel_id, channelName: row.channel_name };
+    const row = this.db.prepare('SELECT id, channel_id, channel_name, discord_user_id FROM devices WHERE token_hash = ?').get(hash(token)) as DeviceRow | undefined;
+    return row && deviceFromRow(row);
   }
 
   getDevice(id: string): Device | undefined {
-    const row = this.db.prepare('SELECT id, channel_id, channel_name FROM devices WHERE id = ?').get(id) as DeviceRow | undefined;
-    return row && { id: row.id, channelId: row.channel_id, channelName: row.channel_name };
+    const row = this.db.prepare('SELECT id, channel_id, channel_name, discord_user_id FROM devices WHERE id = ?').get(id) as DeviceRow | undefined;
+    return row && deviceFromRow(row);
+  }
+
+  /** Only a fresh private Discord code from this channel can establish an identity. */
+  linkDevice(id: string, code: string, now = Date.now()): Device | undefined {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const device = this.getDevice(id);
+      const invitation = device ? this.db.prepare(`DELETE FROM pairing
+        WHERE code_hash = ? AND channel_id = ? AND discord_user_id IS NOT NULL AND expires_at > ?
+        RETURNING *`).get(hash(code), device.channelId, now) as PairRow | undefined : undefined;
+      if (device && invitation?.discord_user_id) this.db.prepare('UPDATE devices SET discord_user_id = ? WHERE id = ?').run(invitation.discord_user_id, id);
+      this.db.exec('COMMIT');
+      return device && invitation?.discord_user_id ? { ...device, discordUserId: invitation.discord_user_id } : undefined;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   revoke(id: string): void { this.db.prepare('DELETE FROM devices WHERE id = ?').run(id); }

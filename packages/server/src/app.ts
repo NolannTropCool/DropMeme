@@ -4,12 +4,13 @@ import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import multipart from '@fastify/multipart';
 import { z } from 'zod';
-import { appVersion, pairingRequestSchema, profileSchema, textRequestSchema, type ServerEvent, type Profile } from '@dropmeme/shared';
+import { appVersion, pairingRequestSchema, deviceLinkRequestSchema, profileSchema, textRequestSchema, type ServerEvent, type Profile } from '@dropmeme/shared';
 import type { WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Store, equalSecret, type Device } from './store.js';
 import { MediaCatalog, classifyMedia, type IncomingMedia, type StoredMedia } from './media.js';
 import { convertMov, sniffContentType } from './convert.js';
+import { displayText } from './discord-content.js';
 
 export interface DiscordBridge {
   connected(): boolean;
@@ -18,9 +19,9 @@ export interface DiscordBridge {
 export interface Application {
   app: FastifyInstance;
   store: Store;
-  publish(channelId: string, author: string, input: IncomingMedia): boolean;
+  publish(channelId: string, author: string, input: IncomingMedia, recipientDiscordIds?: readonly string[]): boolean;
   publishStatus(): void;
-  publishText(channelId: string, author: string, text: string, sourceId?: string): boolean;
+  publishText(channelId: string, author: string, text: string, sourceId?: string, recipientDiscordIds?: readonly string[]): boolean;
 }
 const origins = new Set(['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost', 'http://localhost:1420']);
 const authenticateSchema = z.object({ type: z.literal('authenticate'), token: z.string().min(32).max(128), profile: profileSchema.optional(), protocol: z.number().int().min(1).max(2).optional(), version: z.string().max(32).optional() }).strict();
@@ -55,7 +56,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
   await app.register(cors, { origin: (origin, cb) => cb(null, !origin || origins.has(origin)), methods: ['GET', 'POST', 'DELETE'] });
   await app.register(rateLimit, { max: 240, timeWindow: '1 minute' });
   await app.register(websocket, { options: { maxPayload: 2048 } });
-  await app.register(multipart, { limits: { fileSize: config.maxMediaBytes, files: 1, fields: 0, parts: 1 } });
+  await app.register(multipart, { limits: { fileSize: config.maxMediaBytes, files: 1, fields: 1, fieldSize: 8_000, parts: 2 } });
   app.addHook('onSend', async (_request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
@@ -79,11 +80,18 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     for (const [socket, device] of connected) if (device.protocol >= 2) send(socket, { type: 'presence', peers: list });
   };
   const dispatch = (media: StoredMedia) => {
-    for (const [socket, device] of peers) if (device.channelId === media.channelId && (!media.targetDeviceId || media.targetDeviceId === device.id) && (media.kind !== 'text' || device.protocol >= 2)) send(socket, {
+    for (const [socket, device] of peers) if (device.channelId === media.channelId && (!media.targetDeviceId || media.targetDeviceId === device.id) && (media.targetDeviceIds === undefined || media.targetDeviceIds.includes(device.id)) && (media.kind !== 'text' || device.protocol >= 2)) send(socket, {
       type: 'media', id: media.id, channelId: media.channelId, kind: media.kind,
       ...(media.loop ? { loop: true } : {}), ...(media.animation !== undefined ? { animation: media.animation } : {}), ...(media.text ? { text: media.text } : {}),
+      ...(media.caption ? { caption: media.caption } : {}),
       url: catalog.url(config.publicUrl, media.id, device.id), name: media.name, author: media.author, createdAt: media.createdAt,
     });
+  };
+  const sendReady = (socket: WebSocket, device: Device) => send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion, ...(device.discordUserId ? { discordUserId: device.discordUserId } : {}) });
+  const mentionedDevices = (channelId: string, userIds: readonly string[] | undefined): string[] | undefined => {
+    if (userIds === undefined) return undefined;
+    const mentioned = new Set(userIds);
+    return [...peers.entries()].filter(([socket, peer]) => socket.readyState === 1 && peer.channelId === channelId && peer.protocol >= 2 && peer.profile.acceptDirect && peer.discordUserId && mentioned.has(peer.discordUserId)).map(([, peer]) => peer.id);
   };
   const activeSender = (authorization: string | undefined) => {
     const device = authorization?.startsWith('Bearer ') ? store.authenticate(authorization.slice(7)) : undefined;
@@ -96,6 +104,17 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (times.length >= 20) return false;
     times.push(Date.now()); sendTimes.set(deviceId, times); return true;
   };
+
+  app.post('/v2/device/link', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const sender = activeSender(request.headers.authorization);
+    if (!sender) return reply.code(401).send({ error: 'Connectez cet appareil au salon avant de le lier.' });
+    const body = deviceLinkRequestSchema.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: 'Code invalide. Utilisez le code privé de /dropmeme.' });
+    const device = store.linkDevice(sender.id, body.data.code);
+    if (!device?.discordUserId) return reply.code(401).send({ error: 'Code expiré, déjà utilisé ou généré dans un autre salon. Relancez /dropmeme dans ce salon.' });
+    for (const [socket, peer] of peers) if (peer.id === device.id) { peer.discordUserId = device.discordUserId; sendReady(socket, peer); }
+    return reply.header('Cache-Control', 'no-store').send({ discordUserId: device.discordUserId });
+  });
 
   app.post('/v2/send/text', { bodyLimit: 12_000 }, async (request, reply) => {
     const sender = activeSender(request.headers.authorization);
@@ -120,6 +139,13 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!file) return reply.code(400).send({ error: 'Choisissez un fichier.' });
     let bytes = await file.toBuffer();
     if (file.file.truncated) return reply.code(413).send({ error: 'Fichier trop volumineux.' });
+    if (Object.keys(file.fields).some(name => name !== file.fieldname && name !== 'caption')) return reply.code(400).send({ error: 'Champ de fichier invalide.' });
+    const field = file.fields.caption;
+    let caption: string | undefined;
+    if (field) {
+      if (Array.isArray(field) || field.type !== 'field' || field.valueTruncated || !z.string().max(2000).safeParse(field.value).success) return reply.code(400).send({ error: 'Le texte d’accompagnement est limité à 2000 caractères.' });
+      caption = displayText(field.value as string) || undefined;
+    }
     let contentType = sniffContentType(bytes, file.filename);
     if (!contentType) return reply.code(415).send({ error: 'Format refusé. Utilisez une image, un GIF, WebP, MP4, WebM ou MOV.' });
     let name = file.filename.replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 256);
@@ -130,7 +156,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     // Consent/connection may have changed while the file was uploading or converting.
     const current = activeSender(request.headers.authorization);
     if (!current || !targetAllowed(current, target)) return reply.code(403).send({ error: 'L’envoi n’est plus autorisé.' });
-    const media = catalog.addUpload(sender.channelId, sender.profile.name, bytes, name, contentType, target);
+    const media = catalog.addUpload(sender.channelId, sender.profile.name, bytes, name, contentType, target, caption);
     if (!media) return reply.code(413).send({ error: 'Fichier trop volumineux.' });
     dispatch(media); return reply.code(201).send({ id: media.id });
   });
@@ -144,7 +170,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     const parsed = pairingRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Code ou ID de salon invalide.' });
     if (store.deviceCount() >= config.maxClients) return reply.code(503).send({ error: 'Nombre maximal d’appareils atteint.' });
-    let subscription: { channelId: string; channelName: string } | undefined;
+    let subscription: { channelId: string; channelName: string; discordUserId?: string } | undefined;
     if ('code' in parsed.data) subscription = store.consumePairing(parsed.data.code);
     else if (config.joinKey && equalSecret(parsed.data.joinKey, config.joinKey) && config.allowedChannelIds.has(parsed.data.channelId)) {
       const channelName = await discord.channelName(parsed.data.channelId);
@@ -153,8 +179,8 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!subscription || !config.allowedChannelIds.has(subscription.channelId)) {
       return reply.code(401).send({ error: 'Invitation invalide, expirée ou salon non autorisé.' });
     }
-    const device = store.createDevice(subscription.channelId, subscription.channelName);
-    return reply.code(201).header('Cache-Control', 'no-store').send({ token: device.token, deviceId: device.id, channelId: device.channelId, channelName: device.channelName });
+    const device = store.createDevice(subscription.channelId, subscription.channelName, subscription.discordUserId);
+    return reply.code(201).header('Cache-Control', 'no-store').send({ token: device.token, deviceId: device.id, channelId: device.channelId, channelName: device.channelName, ...(device.discordUserId ? { discordUserId: device.discordUserId } : {}) });
   });
 
   app.delete('/v1/device', async (request, reply) => {
@@ -193,7 +219,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
         if ([...peers.values()].some(peer => peer.id === device.id)) { socket.close(4009, 'Appareil déjà connecté'); return; }
         clearTimeout(timeout);
         peers.set(socket, { ...device, profile: parsed.success && parsed.data.profile ? parsed.data.profile : { name: `Appareil ${device.id.slice(0, 6)}`, acceptDirect: false }, protocol: parsed.success ? parsed.data.protocol ?? 1 : 1, version: parsed.success ? parsed.data.version ?? '0.1' : '0.1' });
-        send(socket, { type: 'ready', channelId: device.channelId, channelName: device.channelName, discordConnected: discord.connected(), protocol: 2, version: appVersion });
+        sendReady(socket, device);
         publishPresence(device.channelId);
       } catch { socket.close(1008, 'Message invalide'); }
     });
@@ -266,7 +292,7 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
     if (!deviceId || !expires || !ticket || !catalog.verify(request.params.id, deviceId, Number(expires), ticket)) return reply.code(401).send({ error: 'Lien expiré ou invalide.' });
     const device = store.getDevice(deviceId);
     const media = catalog.get(request.params.id);
-    if (!device || !media || device.channelId !== media.channelId || (media.targetDeviceId && media.targetDeviceId !== device.id) || !config.allowedChannelIds.has(device.channelId)) return reply.code(404).send({ error: 'Média indisponible.' });
+    if (!device || !media || device.channelId !== media.channelId || (media.targetDeviceId && media.targetDeviceId !== device.id) || (media.targetDeviceIds !== undefined && !media.targetDeviceIds.includes(device.id)) || !config.allowedChannelIds.has(device.channelId)) return reply.code(404).send({ error: 'Média indisponible.' });
     try {
       const { bytes, contentType } = await download(media);
       reply.header('Content-Type', contentType).header('Cache-Control', 'private, max-age=60').header('Accept-Ranges', 'bytes');
@@ -295,16 +321,16 @@ export async function createApplication(config: Config, discord: DiscordBridge, 
 
   return {
     app, store,
-    publish(channelId, author, input) {
+    publish(channelId, author, input, recipientDiscordIds) {
       if (!config.allowedChannelIds.has(channelId)) return false;
-      const media = catalog.add(channelId, author, input);
+      const media = catalog.add(channelId, author, input, Date.now(), mentionedDevices(channelId, recipientDiscordIds));
       if (!media) return false;
       dispatch(media);
       return true;
     },
-    publishText(channelId, author, text, sourceId) {
+    publishText(channelId, author, text, sourceId, recipientDiscordIds) {
       if (!config.allowedChannelIds.has(channelId)) return false;
-      const media = catalog.addText(channelId, author, text, undefined, sourceId);
+      const media = catalog.addText(channelId, author, text, undefined, sourceId, mentionedDevices(channelId, recipientDiscordIds));
       if (!media) return false;
       dispatch(media); return true;
     },

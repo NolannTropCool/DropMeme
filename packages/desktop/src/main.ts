@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseSchema, normalizeServerUrl, type MediaEvent } from '@dropmeme/shared';
 import { Social } from './social.js';
+import { DiscordIdentity } from './discord-identity.js';
 import { initializeUpdates } from './updates.js';
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
@@ -25,6 +26,7 @@ let placing = false;
 let connected = false;
 const display = new Display();
 const social = new Social(() => preferences);
+const identity = new DiscordIdentity(() => preferences, save);
 const queue = new MediaQueue(preferences.settings, media => {
   void display.show(media, preferences.settings).catch(async error => {
     message(error instanceof Error ? error.message : 'Affichage impossible.'); await display.hide(media.id); queue.complete(media.id);
@@ -49,6 +51,7 @@ function subscriptionUi(): void {
   $('subscription').hidden = !preferences.subscription;
   $('channel-name').textContent = preferences.subscription?.channelName ?? '';
   $('channel-id').textContent = preferences.subscription?.channelId ?? '';
+  identity.render();
 }
 
 function startConnection(token: string): void {
@@ -57,6 +60,12 @@ function startConnection(token: string): void {
     if (event.type === 'ready') {
       connected = true; status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
       social.setOnline(event.protocol === 2);
+      identity.setOnline(event.protocol === 2, event.version);
+      if (preferences.subscription && preferences.subscription.discordUserId !== event.discordUserId) {
+        preferences.subscription.discordUserId = event.discordUserId;
+        identity.render();
+        void save().catch(() => message('Impossible d’enregistrer la liaison Discord.'));
+      }
       message('');
     } else if (event.type === 'status') status(event.discordConnected ? 'En direct' : 'Discord indisponible', event.discordConnected);
     else if (event.type === 'media' && event.channelId === preferences.subscription?.channelId && !previewing && !placing) queue.enqueue(event);
@@ -65,6 +74,7 @@ function startConnection(token: string): void {
   }, state => {
     connected = false;
     social.setOnline(false);
+    identity.setOnline(false);
     status(state === 'connecting' ? 'Connexion…' : state === 'offline' ? 'Reconnexion…' : 'Déconnecté');
     if (state === 'expired') message('Cet abonnement a été révoqué. Désabonnez-vous puis utilisez une nouvelle invitation.');
     if (state === 'duplicate') message('Cet appareil est déjà connecté dans une autre instance.');
@@ -99,7 +109,7 @@ $<HTMLFormElement>('connect-form').onsubmit = async event => {
       throw error;
     }
     preferences.server = server;
-    preferences.subscription = { deviceId: result.deviceId, channelId: result.channelId, channelName: result.channelName };
+    preferences.subscription = { deviceId: result.deviceId, channelId: result.channelId, channelName: result.channelName, discordUserId: result.discordUserId };
     await save(); input('code').value = ''; input('join-key').value = '';
     startConnection(result.token);
   } catch (error) { message(error instanceof Error ? error.message : 'Connexion impossible.'); }
@@ -116,6 +126,7 @@ $('disconnect').onclick = async () => {
     }
     connection?.stop(); connection = undefined; connected = false;
     social.setOnline(false);
+    identity.setOnline(false);
     queue.reset(); await display.hide(); await clearToken();
     preferences.subscription = undefined; await save(); subscriptionUi(); status('Déconnecté'); message('');
   } catch { message('Le serveur est inaccessible. Le jeton est conservé pour pouvoir révoquer l’abonnement au prochain essai.'); }
@@ -141,7 +152,7 @@ $('preview').onclick = async () => {
   const count = preferences.settings.multiDisplay ? (preferences.settings.multiPlacement === 'zones' ? Math.min(preferences.settings.maxSimultaneous, Math.max(1, preferences.settings.zones.length)) : preferences.settings.maxSimultaneous) : 1;
   try {
     await Promise.all(Array.from({ length: count }, async (_, i) => {
-      const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}-${i}`, channelId: '123456789012345678', kind: 'image', animation: true, url: new URL('/preview.gif', location.href).href, name: 'Aperçu DropMeme.gif', author: 'DropMeme', createdAt: Date.now() };
+      const media: MediaEvent = { type: 'media', id: `preview-${Date.now()}-${i}`, channelId: '123456789012345678', kind: 'image', animation: true, url: new URL('/preview.gif', location.href).href, name: 'Aperçu DropMeme.gif', author: 'DropMeme', caption: 'Un texte peut accompagner vos médias.', createdAt: Date.now() };
       previews.add(media.id); await display.show(media, preferences.settings, true);
     })); message('');
   } catch (error) { previews.clear(); previewing = false; await display.hide(); message(error instanceof Error ? error.message : 'Aperçu impossible.'); }
@@ -163,7 +174,9 @@ async function editPlacement(zoneId?: string): Promise<void> {
     if (result) {
       if (zoneId) {
         const nextZone = { id: zoneId, monitor: result.monitor, position: 'custom' as const, x: result.customX, y: result.customY, width: result.width, height: result.height };
-        preferences.settings.zones = [...preferences.settings.zones.filter(item => item.id !== zoneId), nextZone];
+        preferences.settings.zones = zone
+          ? preferences.settings.zones.map(item => item.id === zoneId ? nextZone : item)
+          : [...preferences.settings.zones, nextZone];
       } else preferences.settings = result;
       queue.configure(preferences.settings); await save();
       $('saved').textContent = 'Disposition enregistrée pour cet écran.';
@@ -191,6 +204,7 @@ function renderSettings(): void {
   input('volume').disabled = !preferences.settings.sound;
   input('displayName').value = preferences.settings.displayName;
   $<HTMLSelectElement>('multiPlacement').value = preferences.settings.multiPlacement;
+  $<HTMLSelectElement>('captionPosition').value = preferences.settings.captionPosition;
   $('multi-fields').hidden = !preferences.settings.multiDisplay;
   $('zones-fields').hidden = preferences.settings.multiPlacement !== 'zones';
   $('zones-list').replaceChildren();
@@ -207,7 +221,7 @@ function renderSettings(): void {
   $<HTMLButtonElement>('add-zone').disabled = preferences.settings.zones.length >= 8;
 }
 
-for (const key of [...numbers, ...booleans, 'position', 'monitor', 'displayName', 'multiPlacement']) {
+for (const key of [...numbers, ...booleans, 'position', 'monitor', 'displayName', 'multiPlacement', 'captionPosition']) {
   $(key).addEventListener('change', () => {
     let next = { ...preferences.settings };
     for (const name of numbers) next[name] = Number(input(name).value);
@@ -216,6 +230,7 @@ for (const key of [...numbers, ...booleans, 'position', 'monitor', 'displayName'
     next.monitor = $<HTMLSelectElement>('monitor').value;
     next.displayName = input('displayName').value.trim();
     next.multiPlacement = $<HTMLSelectElement>('multiPlacement').value as typeof next.multiPlacement;
+    next.captionPosition = $<HTMLSelectElement>('captionPosition').value as typeof next.captionPosition;
     if (key === 'monitor') next = settingsForMonitor(next, next.monitor);
     next.layouts = { ...next.layouts, [next.monitor]: { position: next.position, x: next.customX, y: next.customY, width: next.width, height: next.height } };
     const result = settingsSchema.safeParse(next);

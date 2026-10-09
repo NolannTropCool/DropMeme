@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const snowflake = z.string().regex(/^\d{17,20}$/, 'ID Discord invalide');
-export const appVersion = '0.2.0';
+export const appVersion = '0.3.0';
 export const protocolVersion = 2;
 export const mediaKind = z.enum(['image', 'video', 'audio', 'text']);
 export type MediaKind = z.infer<typeof mediaKind>;
@@ -32,6 +32,7 @@ export const settingsSchema = z.object({
   displayName: z.string().trim().min(1).max(64).default('Utilisateur'),
   acceptDirect: z.boolean().default(false),
   showAuthor: z.boolean().default(true),
+  captionPosition: z.enum(['above', 'below']).default('below'),
   texts: z.boolean().default(true),
   multiDisplay: z.boolean().default(false),
   maxSimultaneous: z.number().int().min(2).max(8).default(4),
@@ -57,6 +58,7 @@ export const mediaEventSchema = z.object({
   loop: z.boolean().optional(),
   animation: z.boolean().optional(),
   text: z.string().min(1).max(2000).optional(),
+  caption: z.string().min(1).max(2000).optional(),
   url: z.url(),
   name: z.string().max(256),
   author: z.string().max(100),
@@ -66,7 +68,7 @@ export type MediaEvent = z.infer<typeof mediaEventSchema>;
 
 export const serverEventSchema = z.discriminatedUnion('type', [
   mediaEventSchema,
-  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional() }),
+  z.object({ type: z.literal('ready'), channelId: snowflake, channelName: z.string(), discordConnected: z.boolean(), protocol: z.number().optional(), version: z.string().optional(), discordUserId: snowflake.optional() }),
   z.object({ type: z.literal('presence'), peers: z.array(peerSchema).max(1000) }),
   z.object({ type: z.literal('status'), discordConnected: z.boolean() }),
   z.object({ type: z.literal('error'), message: z.string() }),
@@ -81,6 +83,14 @@ export function playbackDuration(media: MediaEvent, settings: Settings): number 
   return isAnimation(media) ? settings.gifDurationSeconds : media.kind === 'video' ? settings.videoDurationSeconds : settings.durationSeconds;
 }
 
+/** Text and GIF animations share display slots; ordinary videos remain exclusive. */
+export function supportsConcurrentDisplay(media: Pick<MediaEvent, 'kind' | 'name' | 'loop' | 'animation'>): boolean {
+  return media.kind === 'text' || isAnimation(media);
+}
+
+export const deviceLinkRequestSchema = z.object({ code: z.string().regex(/^[A-Z0-9]{8}-[A-Z0-9]{8}$/) }).strict();
+export const deviceLinkResponseSchema = z.object({ discordUserId: snowflake });
+
 export const pairingRequestSchema = z.union([
   z.object({ code: z.string().regex(/^[A-Z0-9]{8}-[A-Z0-9]{8}$/) }).strict(),
   z.object({ channelId: snowflake, joinKey: z.string().min(24).max(256) }).strict(),
@@ -90,6 +100,7 @@ export const pairingResponseSchema = z.object({
   deviceId: z.string(),
   channelId: snowflake,
   channelName: z.string(),
+  discordUserId: snowflake.optional(),
 });
 export type PairingResponse = z.infer<typeof pairingResponseSchema>;
 

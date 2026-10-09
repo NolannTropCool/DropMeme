@@ -9,8 +9,9 @@ Le bot reçoit les nouveaux messages via le Gateway Discord. Il diffuse les méd
 - Abonnement à un salon avec un code privé généré par `/dropmeme`, ou ID du salon + clé d’invitation administrateur.
 - Images, GIF et WebP animés, vidéos MP4/WebM, MOV convertis en MP4 sur le serveur, texte et audio MP3/OGG/WAV/M4A. Les images de liens passant par le proxy Discord sont aussi acceptées.
 - Écran, placement libre par glisser-déposer, dimensions, opacité et durées séparées de 2 à 120 secondes pour GIF, vidéos, images et texte. Son désactivé par défaut ; l’audio seul est ignoré lorsqu’il est muet.
-- Personnes connectées au même salon, pseudo local et envois de texte ou fichiers depuis l’application. Les envois directs demandent le consentement explicite du destinataire, désactivé par défaut. Ce pseudo identifie l’appareil connecté, sans vérification d’identité Discord.
-- Plusieurs GIF simultanés en option, désactivée par défaut : placement aléatoire ou jusqu’à huit zones personnalisées sur vos écrans. Une fenêtre de rendu est partagée par écran ; les vidéos ordinaires restent dans la file.
+- Personnes connectées au même salon, pseudo local et envois de texte ou fichiers depuis l’application. Les envois directs demandent le consentement explicite du destinataire, désactivé par défaut. Le pseudo local identifie l’appareil ; un code privé `/dropmeme` permet de le lier au compte Discord pour recevoir les médias qui mentionnent ce compte.
+- Plusieurs GIF et textes simultanés en option, désactivée par défaut : placement aléatoire ou jusqu’à huit zones personnalisées sur vos écrans. Les zones gardent leur ordre après modification. Une fenêtre de rendu est partagée par écran ; les vidéos ordinaires restent exclusives et passent une par une dans la file.
+- Texte accompagnant un GIF ou une vidéo : légende affichée pendant sa lecture, au-dessus ou en dessous au choix. Les mentions de destinataires sont retirées du texte. Dans l’application, un fichier avec du texte produit un seul envoi.
 - File FIFO limitée, déduplication, filtres par format, pause, passage au média suivant et aperçu. La pause ignore les nouveaux médias ; elle ne les rejoue pas ensuite. Les médias en attente depuis plus de cinq minutes sont abandonnés.
 - Zone de notification, ouverture avec Windows, reconnexion automatique. Les réglages sont enregistrés localement et le jeton dans le gestionnaire d’identifiants Windows.
 - SQLite local : aucun Redis, PostgreSQL ou service de compte utilisateur à exploiter.
@@ -25,6 +26,12 @@ Un appareil est abonné à **un salon à la fois**. Pour changer de salon, désa
 4. Activez le mode développeur Discord et copiez l’ID du serveur, de l’application et des salons autorisés.
 
 La commande `/dropmeme` est enregistrée au démarrage uniquement dans le serveur configuré, sans supprimer les autres commandes du bot. Sa réponse est éphémère et contient un code à usage unique valable 10 minutes. Il faut pouvoir voir le salon pour générer ce code. Un administrateur peut aussi restreindre l’accès à la commande dans les paramètres des intégrations Discord.
+
+### Envoyer à une personne avec une mention Discord
+
+Dans le salon, chaque destinataire utilise `/dropmeme` **avec son propre compte**. Un nouvel abonnement avec ce code lie automatiquement l’appareil à ce compte. Pour un appareil déjà abonné, collez un nouveau code dans **Dans le salon → Lier votre compte Discord**, puis activez **Accepter les envois directs**. Chaque appareil demande son propre code. Ne partagez jamais ces codes : ils prouvent la possession du compte qui les a générés. Les anciens abonnements ou ceux créés par ID restent accessibles et peuvent être liés sans changer leur jeton.
+
+Envoyez ensuite un GIF, une vidéo ou un texte dans le salon Discord en mentionnant les personnes souhaitées, par exemple `@Alice @Bob Bravo !` avec un GIF. Seuls leurs appareils liés, actuellement connectés à ce même salon et consentants reçoivent l’envoi ; `Bravo !` apparaît comme légende du GIF. Si aucun destinataire n’est disponible, aucun appareil ne le reçoit : il n’est jamais diffusé au salon par défaut. Une mention explicite dans le texte cible un utilisateur ; les mentions de rôles, `@everyone` et la notification automatique d’une réponse ne constituent pas un ciblage individuel. Sans mention d’utilisateur, la diffusion habituelle au salon reste active.
 
 ## Déployer sur le mini-PC Linux
 
@@ -68,7 +75,7 @@ Pour sauvegarder SQLite, arrêtez le service avant de copier le volume `dropmeme
 
 Le workflow **Checks** construit un installeur NSIS `.exe` à chaque push sur `main` et chaque PR. Téléchargez l’artefact **DropMeme-Windows-x64** dans l’onglet Actions de GitHub. Windows 10/11 x64 est ciblé. L’installeur installe WebView2 si nécessaire ; l’application utilise le runtime partagé de Windows au lieu d’embarquer Chromium.
 
-Un tag `v0.2.0`, ou autre version cohérente avec les fichiers du projet, déclenche **Windows release** : build, tests, somme SHA-256, signature de mise à jour et création d’une **GitHub Release en brouillon** contenant l’installeur, sa signature et `latest.json`. `workflow_dispatch` génère uniquement l’artefact signé. Le projet ne contient pas de certificat Authenticode Windows : SmartScreen peut demander une confirmation. La signature des mises à jour Tauri vérifie leur origine dans l’application et ne remplace pas Authenticode.
+Un tag `v0.3.0`, ou autre version cohérente avec les fichiers du projet, déclenche **Windows release** : build, tests, somme SHA-256, signature de mise à jour et création d’une **GitHub Release en brouillon** contenant l’installeur, sa signature et `latest.json`. `workflow_dispatch` génère uniquement l’artefact signé. Le projet ne contient pas de certificat Authenticode Windows : SmartScreen peut demander une confirmation. La signature des mises à jour Tauri vérifie leur origine dans l’application et ne remplace pas Authenticode.
 
 ### Versions et mises à jour intégrées
 
@@ -79,6 +86,8 @@ Avant une release, ajoutez au dépôt le secret **Actions → TAURI_SIGNING_PRIV
 Après configuration, posez le tag correspondant et publiez la release en brouillon pour rendre `latest.json` accessible. Dans l’application, **Rechercher une mise à jour** puis **Installer et redémarrer** télécharge le nouvel installateur, vérifie sa signature et lance l’installation. Le téléchargement est celui d’un installateur complet, pas un correctif différentiel. Le serveur Linux se met à jour séparément par redéploiement Docker.
 
 La migration de **0.1 vers 0.2** demande une première installation manuelle de l’artefact Windows, puisque 0.1 n’intègre pas l’updater. Quittez l’ancienne application depuis la zone de notification et installez 0.2 ; préférences et abonnement sont conservés. Redéployez aussi le serveur. Les clients 0.1 peuvent continuer à recevoir les médias du serveur 0.2 ; les nouvelles fonctions sociales nécessitent client et serveur 0.2.
+
+Pour **0.3**, redéployez le serveur puis mettez à jour l’application avec une release signée publiée, ou installez l’artefact Windows du workflow Checks. Les abonnements, jetons, dispositions et durées existants sont conservés ; SQLite ajoute automatiquement la liaison Discord. Aucune nouvelle variable serveur n’est nécessaire. Les légendes et les textes simultanés nécessitent le client 0.3 ; les mentions ciblées nécessitent le serveur 0.3 et une liaison par code privé pour chaque appareil destinataire. Les clients 0.2 continuent à recevoir les médias, sans afficher les légendes.
 
 Dans l’application : saisissez l’URL HTTPS du serveur, puis votre code Discord ou l’ID du salon et la clé d’invitation. Choisissez vos réglages et utilisez « Tester l’affichage ». Fermer la fenêtre la réduit dans la zone de notification ; utilisez le menu **Quitter** pour arrêter l’application. Le mode plein écran exclusif de certains jeux peut masquer la superposition ; utilisez le plein écran sans bordure.
 
@@ -133,6 +142,8 @@ Les IDs de salons ne sont pas des secrets. Les codes et jetons sont stockés hac
 
 Le Compose réserve un maximum de **768 Mo de mémoire**, avec **256 Mo de fichiers temporaires** (comptés dans la mémoire utilisée), et un CPU. Ces plafonds sont configurables via `DROPMEME_MEMORY_LIMIT` et `DROPMEME_TMP_MB` dans `.env` ou les variables de déploiement. Si vous augmentez `MAX_MEDIA_MB` au-delà de 25, augmentez aussi l’espace temporaire et la mémoire pour les deux conversions simultanées ; les fichiers temporaires sont supprimés après conversion, même en cas d’échec.
 
-Il n’y a pas de panneau administrateur, d’OAuth Discord individuel, d’historique, de synchronisation des réglages ni de diffusion multi-salon dans cette première version. Les invitations sont des accès délégués : gardez-les privées. Toute personne possédant un code valide peut appairer un appareil, même sans compte Discord sur celui-ci.
+Il n’y a pas de panneau administrateur, d’OAuth Discord individuel, d’historique, de synchronisation des réglages ni de diffusion multi-salon. La liaison Discord repose sur la possession du code éphémère généré par le compte : gardez-le privé. Toute personne possédant ce code peut appairer ou lier un appareil au compte qui l’a généré, sans autre connexion Discord sur l’appareil. La clé d’invitation administrateur donne accès au salon mais ne lie aucun compte.
 
 Sources consultées pour l’architecture et les versions : [registre officiel Fastify](https://registry.npmjs.org/fastify/latest), [politique LTS Fastify](https://github.com/fastify/fastify/blob/main/docs/Reference/LTS.md), [Discord Gateway](https://discord.com/developers/docs/events/gateway), [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+Les mentions utilisent la syntaxe officielle de [discord.js MessageMentions](https://github.com/discordjs/discord.js/blob/14.27.0/packages/discord.js/src/structures/MessageMentions.js), sans dépendre du cache des utilisateurs pour identifier les destinataires.

@@ -16,10 +16,11 @@ const extensions: Record<string, string> = {
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mov: 'video/quicktime',
 };
 
-export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean }
+export interface IncomingMedia { url: string; name: string; contentType: string | null; size: number; sourceId?: string; loop?: boolean; caption?: string }
 export interface StoredMedia extends IncomingMedia {
   id: string; channelId: string; kind: MediaKind; author: string; createdAt: number;
   bytes?: Buffer; text?: string; targetDeviceId?: string; animation?: boolean;
+  targetDeviceIds?: readonly string[];
 }
 
 /** Only exact HTTPS media CDN hosts. Never fetch a message's arbitrary URL or an HTML player. */
@@ -44,32 +45,32 @@ export class MediaCatalog {
   private readonly entries = new Map<string, StoredMedia>();
   constructor(private readonly key: Buffer, private readonly maxBytes: number) {}
 
-  add(channelId: string, author: string, input: IncomingMedia, now = Date.now()): StoredMedia | undefined {
+  add(channelId: string, author: string, input: IncomingMedia, now = Date.now(), targetDeviceIds?: readonly string[]): StoredMedia | undefined {
     this.prune(now);
     const kind = classifyMedia(input, this.maxBytes);
     if (!kind) return undefined;
     const id = input.sourceId ? createHash('sha256').update(`${channelId}:${input.sourceId}`).digest('hex') : randomUUID();
     if (this.entries.has(id)) return undefined;
-    const media: StoredMedia = { ...input, name: input.name.slice(0, 256), id, channelId, author: author.slice(0, 100), kind, createdAt: now, animation: input.loop === true || input.contentType === 'image/gif' || /\.(gif|webp)$/i.test(input.name) };
+    const media: StoredMedia = { ...input, ...(input.caption ? { caption: input.caption.slice(0, 2000) } : {}), name: input.name.slice(0, 256), id, channelId, author: author.slice(0, 100), kind, createdAt: now, animation: input.loop === true || input.contentType === 'image/gif' || /\.(gif|webp)$/i.test(input.name), ...(targetDeviceIds !== undefined ? { targetDeviceIds: [...targetDeviceIds] } : {}) };
     this.insert(media);
     return media;
   }
 
-  addUpload(channelId: string, author: string, bytes: Buffer, name: string, contentType: string, targetDeviceId?: string): StoredMedia | undefined {
+  addUpload(channelId: string, author: string, bytes: Buffer, name: string, contentType: string, targetDeviceId?: string, caption?: string): StoredMedia | undefined {
     this.prune(Date.now());
     const kind = types.get(contentType);
     if (!kind || !bytes.length || bytes.length > Math.min(this.maxBytes, 64 * 1024 * 1024)) return undefined;
     const id = randomUUID();
-    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind, bytes, name: name.slice(0, 256), contentType, size: bytes.length, url: `upload:${id}`, createdAt: Date.now(), animation: contentType === 'image/gif' || (contentType === 'image/webp' && bytes.includes(Buffer.from('ANIM'))), ...(targetDeviceId ? { targetDeviceId } : {}) };
+    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind, bytes, name: name.slice(0, 256), contentType, size: bytes.length, url: `upload:${id}`, createdAt: Date.now(), animation: contentType === 'image/gif' || (contentType === 'image/webp' && bytes.includes(Buffer.from('ANIM'))), ...(targetDeviceId ? { targetDeviceId } : {}), ...(caption ? { caption: caption.slice(0, 2000) } : {}) };
     this.insert(media); return media;
   }
 
-  addText(channelId: string, author: string, text: string, targetDeviceId?: string, sourceId?: string): StoredMedia | undefined {
+  addText(channelId: string, author: string, text: string, targetDeviceId?: string, sourceId?: string, targetDeviceIds?: readonly string[]): StoredMedia | undefined {
     this.prune(Date.now());
     if (!text.trim() || text.length > 2000) return undefined;
     const id = sourceId ? createHash('sha256').update(`${channelId}:${sourceId}`).digest('hex') : randomUUID();
     if (this.entries.has(id)) return undefined;
-    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind: 'text', text, name: 'Message', contentType: 'text/plain', size: Buffer.byteLength(text), url: `text:${id}`, createdAt: Date.now(), ...(targetDeviceId ? { targetDeviceId } : {}) };
+    const media: StoredMedia = { id, channelId, author: author.slice(0, 100), kind: 'text', text, name: 'Message', contentType: 'text/plain', size: Buffer.byteLength(text), url: `text:${id}`, createdAt: Date.now(), ...(targetDeviceId ? { targetDeviceId } : {}), ...(targetDeviceIds !== undefined ? { targetDeviceIds: [...targetDeviceIds] } : {}) };
     this.insert(media); return media;
   }
 
