@@ -1,5 +1,10 @@
 # Historique DropMeme
 
+## 0.4.1
+
+- Mise à jour obligatoire : au lancement, une nouvelle version publiée bloque l’application jusqu’à son installation, avec relance automatique. Sans connexion, l’application s’ouvre normalement.
+- `npm run version:app` fonctionne sous Windows avec npm 12.
+
 ## 0.4.0
 
 - Nouvelle interface en onglets (Accueil, Affichage, Médias, Envois, Application) : plus besoin de faire défiler les réglages.

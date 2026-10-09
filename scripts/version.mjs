@@ -31,7 +31,9 @@ for (const [path, pattern, replacement] of replacements) {
   else await writeFile(path, updated);
 }
 // Through a shell: Node refuses to spawn npm.cmd directly on Windows (EINVAL).
-if (mode !== '--check') execSync('npm install --package-lock-only --ignore-scripts', { stdio: 'inherit' });
+// npm run exports user config as npm_config_* variables, and npm 12 rejects allow-scripts there for project installs.
+const { npm_config_allow_scripts: _allowScripts, ...npmEnvironment } = process.env;
+if (mode !== '--check') execSync('npm install --package-lock-only --ignore-scripts', { stdio: 'inherit', env: npmEnvironment });
 const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
 if (lock.version !== version || lock.packages[''].version !== version) throw new Error('package-lock.json incohérent.');
 for (const workspace of ['shared', 'server', 'desktop']) if (lock.packages[`packages/${workspace}`].version !== version) throw new Error(`Lockfile du workspace ${workspace} incohérent.`);

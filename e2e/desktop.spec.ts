@@ -18,6 +18,42 @@ test('sidebar tabs show one section at a time and mark the current one', async (
   await expect(page.locator('#greeting-name')).toHaveText('Nolann');
 });
 
+test('a release found at launch locks the desktop app until it installs, with retry after a failure', async ({ page }) => {
+  // Minimal Tauri IPC double: the real updater plugin bindings run against it.
+  await page.addInitScript(() => {
+    const callbacks = new Map<number, (message: unknown) => void>(); let nextCallback = 1;
+    const state = { installs: 0 };
+    const responses: Record<string, unknown> = {
+      'plugin:store|load': 1, 'plugin:store|get': [null, false], 'plugin:event|listen': 1, 'plugin:window|available_monitors': [], 'plugin:autostart|is_enabled': false,
+      'plugin:updater|check': { rid: 2, currentVersion: '0.4.0', version: '0.9.0', date: null, body: '', rawJson: {} },
+    };
+    Object.assign(window, { isTauri: true, updateState: state, __TAURI_INTERNALS__: {
+      metadata: { currentWindow: { label: 'main' }, currentWebview: { windowLabel: 'main', label: 'main' } },
+      transformCallback: (callback: (message: unknown) => void) => { callbacks.set(nextCallback, callback); return nextCallback++; },
+      unregisterCallback: (id: number) => callbacks.delete(id),
+      invoke: async (command: string, args: { onEvent?: { id: number } }) => {
+        if (command !== 'plugin:updater|download_and_install') return responses[command] ?? null;
+        const send = callbacks.get(args.onEvent!.id)!;
+        send({ index: 0, message: { event: 'Started', data: { contentLength: 4 * 1024 * 1024 } } });
+        send({ index: 1, message: { event: 'Progress', data: { chunkLength: 2 * 1024 * 1024 } } });
+        if (++state.installs === 1) throw 'error sending request';
+        send({ index: 2, message: { event: 'Finished' } });
+        return null;
+      },
+    } });
+  });
+  await page.goto('/');
+  const gate = page.getByRole('alertdialog', { name: 'Mise à jour obligatoire' });
+  await expect(gate).toBeVisible();
+  await expect(gate).toContainText('La version 0.9.0 doit être installée');
+  await expect(page.locator('.app')).toHaveAttribute('inert', '');
+  await expect(gate).toContainText('Installation impossible (error sending request)');
+  await page.getByRole('button', { name: 'Réessayer' }).click();
+  await expect(gate).toContainText('Installation terminée');
+  await expect(page.getByRole('button', { name: 'Réessayer' })).toBeHidden();
+  expect(await page.evaluate(() => (window as unknown as { updateState: { installs: number } }).updateState.installs)).toBe(2);
+});
+
 test('0.1 preferences retain layout and duration while new consent and concurrency start disabled', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.setItem('dropmeme-preferences', JSON.stringify({ settings: { durationSeconds: 23, position: 'custom', monitor: 'primary', customX: 0.2, customY: 0.3, width: 600, height: 400 }, server: '' })));

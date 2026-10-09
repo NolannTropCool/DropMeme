@@ -161,6 +161,15 @@
         </section>
       </main>
     </div>
+    <div id="forced-update" class="update-gate" role="alertdialog" aria-modal="true" aria-labelledby="forced-update-title" aria-describedby="forced-update-text" hidden>
+      <div class="card hero">
+        <h2 id="forced-update-title">Mise à jour obligatoire</h2>
+        <p id="forced-update-text" class="hint">La version <strong id="forced-update-version"></strong> doit être installée pour continuer à utiliser DropMeme. L’application redémarrera automatiquement.</p>
+        <progress id="forced-update-progress" max="100" hidden></progress>
+        <p id="forced-update-status" class="hint" role="status"></p>
+        <button id="forced-update-retry" class="button accent" type="button" hidden>Réessayer</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

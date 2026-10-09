@@ -1,4 +1,7 @@
 export const changelog = [
+  { version: '0.4.1', changes: [
+    'Les nouvelles versions s’installent obligatoirement au lancement, puis DropMeme redémarre tout seul.',
+  ] },
   { version: '0.4.0', changes: [
     'Nouvelle interface en onglets : plus besoin de faire défiler les réglages.',
     'Le pseudo du compte Discord lié par le code /dropmeme s’affiche dès l’abonnement.',

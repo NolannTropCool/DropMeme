@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const snowflake = z.string().regex(/^\d{17,20}$/, 'ID Discord invalide');
 const discordUserName = z.string().min(1).max(100);
-export const appVersion = '0.4.0';
+export const appVersion = '0.4.1';
 export const protocolVersion = 2;
 export const mediaKind = z.enum(['image', 'video', 'audio', 'text']);
 export type MediaKind = z.infer<typeof mediaKind>;

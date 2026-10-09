@@ -4,7 +4,7 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { defaultSettings, settingsSchema, pairingRequestSchema, pairingResponseSchema, normalizeServerUrl, type MediaEvent } from '@dropmeme/shared';
 import { Social } from './social.js';
 import { DiscordIdentity } from './discord-identity.js';
-import { initializeUpdates } from './updates.js';
+import { initializeUpdates, enforceUpdate } from './updates.js';
 import { Display } from './display.js';
 import { MediaQueue } from './queue.js';
 import { Connection } from './connection.js';
@@ -295,5 +295,6 @@ async function initialize(): Promise<void> {
   else if (preferences.subscription) { preferences.subscription = undefined; await save(); subscriptionUi(); }
   if (isTauri() && preferences.settings.startMinimized) await getCurrentWindow().hide();
 }
-void initialize().catch(error => message(error instanceof Error ? error.message : 'Initialisation impossible.'));
+// After initialization, so a start in the tray cannot hide the mandatory update screen again.
+void initialize().catch(error => message(error instanceof Error ? error.message : 'Initialisation impossible.')).then(enforceUpdate);
 window.addEventListener('online', () => { if (!connected && connection) { connection.stop(); connection.start(); } });
