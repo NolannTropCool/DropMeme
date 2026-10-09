@@ -12,7 +12,7 @@ export interface DisplayPayload { media: MediaEvent; settings: Settings; preview
 interface Surface { label: string; ready: Promise<void>; window?: WebviewWindow; frame?: HTMLIFrameElement; failed?: boolean }
 interface ActiveDisplay { surface: string; box: DisplayRect; zone?: string }
 
-/** One transparent webview per monitor, shared by concurrent GIFs and text. */
+/** One transparent webview per monitor, shared by GIFs, text and one ordinary video. */
 export class Display {
   private readonly surfaces = new Map<string, Surface>();
   private readonly active = new Map<string, ActiveDisplay>();

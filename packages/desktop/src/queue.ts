@@ -1,6 +1,8 @@
-import { supportsConcurrentDisplay, type MediaEvent, type Settings } from '@dropmeme/shared';
+import { isAnimation, supportsConcurrentDisplay, type MediaEvent, type Settings } from '@dropmeme/shared';
 
-/** FIFO with bounded memory. Pause discards incoming media rather than replaying a flood. */
+const ordinaryVideo = (media: MediaEvent): boolean => media.kind === 'video' && !isAnimation(media);
+
+/** Bounded queue with FIFO videos. Pause discards incoming media instead of replaying a flood. */
 export class MediaQueue {
   private pending: MediaEvent[] = [];
   private active = new Map<string, MediaEvent>();
@@ -42,15 +44,21 @@ export class MediaQueue {
   private canStart(media: MediaEvent): boolean {
     if (!this.active.size) return true;
     const limit = this.settings.multiPlacement === 'zones' ? Math.min(this.settings.maxSimultaneous, Math.max(1, this.settings.zones.length)) : this.settings.maxSimultaneous;
-    return this.settings.multiDisplay && supportsConcurrentDisplay(media) && [...this.active.values()].every(supportsConcurrentDisplay) && this.active.size < limit;
+    const active = [...this.active.values()];
+    return this.settings.multiDisplay && supportsConcurrentDisplay(media) && active.every(supportsConcurrentDisplay) && this.active.size < limit
+      && (!ordinaryVideo(media) || !active.some(ordinaryVideo));
   }
 
   private next(): void {
     while (!this.paused && this.pending.length) {
-      const media = this.pending[0]!;
-      if (Date.now() - media.createdAt > 5 * 60_000) { this.pending.shift(); continue; }
-      if (!this.canStart(media)) break;
-      this.pending.shift(); this.active.set(media.id, media); this.display(media);
+      this.pending = this.pending.filter(media => Date.now() - media.createdAt <= 5 * 60_000);
+      // A waiting second video must not hold up later GIFs/text. Keep video order and
+      // retain FIFO barriers for formats that cannot share the overlay (static images/audio).
+      const index = this.settings.multiDisplay && [...this.active.values()].some(ordinaryVideo)
+        ? this.pending.findIndex(media => !ordinaryVideo(media)) : 0;
+      const media = this.pending[index];
+      if (!media || !this.canStart(media)) break;
+      this.pending.splice(index, 1); this.active.set(media.id, media); this.display(media);
     }
     this.notify();
   }

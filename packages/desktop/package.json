@@ -1,6 +1,6 @@
 {
   "name": "@dropmeme/desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@dropmeme/shared": "0.4.1",
+    "@dropmeme/shared": "0.4.2",
     "@tauri-apps/api": "2.12.1",
     "@tauri-apps/plugin-autostart": "2.7.0",
     "@tauri-apps/plugin-store": "2.5.0",

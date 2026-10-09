@@ -64,7 +64,7 @@ test('0.1 preferences retain layout and duration while new consent and concurren
   await open(page, 'Affichage');
   await expect(page.getByLabel('Largeur')).toHaveValue('600');
   await expect(page.getByLabel('Position', { exact: true })).toHaveValue('custom');
-  await expect(page.getByLabel('Plusieurs GIF et textes en même temps')).not.toBeChecked();
+  await expect(page.getByLabel('Plusieurs médias en même temps')).not.toBeChecked();
   await open(page, 'Envois');
   await expect(page.getByLabel('Accepter les envois directs')).not.toBeChecked();
 });
@@ -180,11 +180,11 @@ test('bundled GIF actually animates instead of rendering only its first frame', 
 
 test('simultaneous preview uses one surface, separate tiles and the GIF duration', async ({ page }) => {
   await page.goto('/'); await open(page, 'Affichage');
-  await expect(page.getByLabel('Plusieurs GIF et textes en même temps')).not.toBeChecked();
+  await expect(page.getByLabel('Plusieurs médias en même temps')).not.toBeChecked();
   await open(page, 'Médias');
   await page.getByLabel('Durée des GIF').fill('2'); await page.getByLabel('Durée des GIF').blur();
   await open(page, 'Affichage');
-  await page.getByLabel('Plusieurs GIF et textes en même temps').check();
+  await page.getByLabel('Plusieurs médias en même temps').check();
   await page.getByRole('button', { name: 'Tester l’affichage' }).click();
   const frame = page.frameLocator('iframe[title="Aperçu du média"]');
   await expect(page.locator('iframe[title="Aperçu du média"]')).toHaveCount(1);
@@ -197,8 +197,8 @@ test('simultaneous preview uses one surface, separate tiles and the GIF duration
 });
 
 test('custom GIF zones can be placed, persisted and previewed together', async ({ page }) => {
-  await page.goto('/'); await open(page, 'Affichage'); await page.getByLabel('Plusieurs GIF et textes en même temps').check();
-  await page.getByLabel('Placement des GIF et textes').selectOption('zones');
+  await page.goto('/'); await open(page, 'Affichage'); await page.getByLabel('Plusieurs médias en même temps').check();
+  await page.getByLabel('Placement des médias simultanés').selectOption('zones');
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: 'Ajouter une zone' }).click();
     await page.frameLocator('iframe[title="Placer la zone"]').getByRole('button', { name: 'Enregistrer la position' }).click();
@@ -237,7 +237,7 @@ test('editing the first and middle zones preserves their identity, order and sav
   expect(await page.evaluate(() => localStorage.getItem('dropmeme-preferences'))).toBe(before);
 });
 
-test('texts and GIF share the screen, captions move together, ordinary videos remain exclusive', async ({ page }) => {
+for (const placement of ['random', 'zones'] as const) test(`texts, GIF and one video share ${placement} placement without a waiting video blocking text`, async ({ page }) => {
   const server = 'http://localhost:3000'; const channelId = '123456789012345678';
   await page.route(`${server}/v1/pair`, route => route.fulfill({ status: 201, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': 'http://localhost:1420' }, body: JSON.stringify({ token: 'test-device-token-long-enough-123456789', deviceId: 'device', channelId, channelName: 'memes' }) }));
   await page.route(`${server}/v1/media/gif*`, route => route.fulfill({ contentType: 'image/gif', body: animatedGif }));
@@ -250,15 +250,19 @@ test('texts and GIF share the screen, captions move together, ordinary videos re
       const events = [
         { id: 'gif', kind: 'image', animation: true, name: 'cat.gif', caption: '<img src=x> Avec le GIF' },
         { id: 'text1', kind: 'text', name: 'Texte', text: 'Premier message' },
-        { id: 'text2', kind: 'text', name: 'Texte', text: 'Deuxième message' },
         { id: 'video1', kind: 'video', name: 'video1.mp4', caption: 'Avec la vidéo' },
         { id: 'video2', kind: 'video', name: 'video2.mp4' },
+        { id: 'text2', kind: 'text', name: 'Texte', text: 'Deuxième message' },
       ];
       for (const media of events) socket.send(JSON.stringify({ ...common, ...media, url: `${server}/v1/media/${media.id}` }));
     });
   });
   await page.goto('/');
-  await open(page, 'Affichage'); await page.getByLabel('Plusieurs GIF et textes en même temps').check();
+  await page.evaluate(placement => {
+    const zones = [0, 1, 2, 3].map(i => ({ id: `zone-${i}`, monitor: 'primary', position: 'custom', x: (i % 2) * 0.8, y: Math.floor(i / 2) * 0.8, width: 300, height: 200 }));
+    localStorage.setItem('dropmeme-preferences', JSON.stringify({ settings: { multiDisplay: true, multiPlacement: placement, zones, width: 300, height: 200 }, server: '' }));
+  }, placement);
+  await page.reload();
   await open(page, 'Médias');
   for (const label of ['Durée des GIF', 'Images et texte', 'Durée des vidéos']) { await page.getByLabel(label).fill('100'); await page.getByLabel(label).blur(); }
   await open(page, 'Accueil');
@@ -267,7 +271,10 @@ test('texts and GIF share the screen, captions move together, ordinary videos re
   const frame = page.frameLocator('iframe[title="Aperçu du média"]');
   await expect(frame.getByText('Premier message', { exact: true })).toBeVisible();
   await expect(frame.getByText('Deuxième message', { exact: true })).toBeVisible();
-  await expect(frame.getByRole('img')).toHaveCount(1); await expect(frame.locator('video')).toHaveCount(0);
+  await expect(frame.getByRole('img')).toHaveCount(1); await expect(frame.locator('video')).toHaveCount(1);
+  await expect(frame.locator('video')).toHaveAttribute('src', `${server}/v1/media/video1`);
+  await expect(frame.getByText('Avec la vidéo', { exact: true })).toBeVisible();
+  await expect(frame.locator('.media-item')).toHaveCount(4);
   const caption = frame.getByText('<img src=x> Avec le GIF', { exact: true }); await expect(caption).toBeVisible();
   expect((await caption.boundingBox())!.y).toBeGreaterThan((await frame.getByRole('img').boundingBox())!.y);
   await open(page, 'Médias');
@@ -275,12 +282,14 @@ test('texts and GIF share the screen, captions move together, ordinary videos re
   await expect.poll(async () => (await caption.boundingBox())!.y < (await frame.getByRole('img').boundingBox())!.y).toBe(true);
   await page.locator('#texts').uncheck(); await expect(caption).toBeHidden();
   await page.locator('#texts').check(); await expect(caption).toBeVisible();
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Passer', exact: true }).click();
-  await expect(frame.locator('video')).toHaveCount(1); await expect(frame.locator('.text-tile')).toHaveCount(0); await expect(frame.getByRole('img')).toHaveCount(0);
+  // Passing the GIF/text frees their slots, but must not start the second ordinary video.
+  for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Passer', exact: true }).click();
+  await expect(frame.locator('video')).toHaveCount(1); await expect(frame.locator('.text-tile')).toHaveCount(1); await expect(frame.getByRole('img')).toHaveCount(0);
   await expect(frame.locator('video')).toHaveAttribute('src', `${server}/v1/media/video1`);
   await expect(frame.getByText('Avec la vidéo', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Passer', exact: true }).click();
   await expect(frame.locator('video')).toHaveAttribute('src', `${server}/v1/media/video2`);
+  await expect(frame.getByText('Deuxième message', { exact: true })).toBeVisible();
   await expect(frame.getByText('Avec la vidéo', { exact: true })).toHaveCount(0);
 });
 

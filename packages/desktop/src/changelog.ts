@@ -1,4 +1,10 @@
 export const changelog = [
+  { version: '0.4.2', changes: [
+    'Une vidéo peut partager l’écran avec les GIF et les textes en mode simultané, en placement aléatoire ou dans vos zones.',
+    'Une seule vidéo ordinaire à la fois ; les vidéos suivantes attendent sans bloquer les nouveaux GIF et textes.',
+    'Le plafond de médias simultanés inclut la vidéo. Les animations Tenor en MP4 restent des GIF.',
+    'Contour noir des lettres plus épais pour les textes et les légendes.',
+  ] },
   { version: '0.4.1', changes: [
     'Les nouvelles versions s’installent obligatoirement au lancement, puis DropMeme redémarre tout seul.',
   ] },

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const snowflake = z.string().regex(/^\d{17,20}$/, 'ID Discord invalide');
 const discordUserName = z.string().min(1).max(100);
-export const appVersion = '0.4.1';
+export const appVersion = '0.4.2';
 export const protocolVersion = 2;
 export const mediaKind = z.enum(['image', 'video', 'audio', 'text']);
 export type MediaKind = z.infer<typeof mediaKind>;
@@ -84,9 +84,9 @@ export function playbackDuration(media: MediaEvent, settings: Settings): number 
   return isAnimation(media) ? settings.gifDurationSeconds : media.kind === 'video' ? settings.videoDurationSeconds : settings.durationSeconds;
 }
 
-/** Text and GIF animations share display slots; ordinary videos remain exclusive. */
+/** GIFs, text and video share slots. The queue additionally allows only one ordinary video. */
 export function supportsConcurrentDisplay(media: Pick<MediaEvent, 'kind' | 'name' | 'loop' | 'animation'>): boolean {
-  return media.kind === 'text' || isAnimation(media);
+  return media.kind === 'text' || media.kind === 'video' || isAnimation(media);
 }
 
 export const deviceLinkRequestSchema = z.object({ code: z.string().regex(/^[A-Z0-9]{8}-[A-Z0-9]{8}$/) }).strict();

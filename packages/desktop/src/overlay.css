@@ -5,7 +5,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .media-item { position: absolute; display: flex; flex-direction: column; align-items: stretch; justify-content: center; overflow: hidden; }
 .media-content { position: relative; display: flex; flex: 1; min-height: 0; align-items: center; justify-content: center; overflow: hidden; }
 /* Meme style: white Comic Sans with a black outline stays readable over any media or desktop. */
-.text-tile, .media-caption { color: #fff; font-family: "Comic Sans MS", "Comic Sans", cursive; font-weight: 700; line-height: 1.25; text-align: center; -webkit-text-stroke: .12em #000; paint-order: stroke fill; white-space: pre-wrap; overflow-wrap: anywhere; }
+.text-tile, .media-caption { color: #fff; font-family: "Comic Sans MS", "Comic Sans", cursive; font-weight: 700; line-height: 1.25; text-align: center; -webkit-text-stroke: .16em #000; paint-order: stroke fill; white-space: pre-wrap; overflow-wrap: anywhere; }
 .media-caption { flex: none; max-height: 35%; overflow: hidden; padding: 6px 12px; font-size: 24px; }
 .media-item[data-caption-position="above"] .media-caption { order: -1; }
 .media-author { position: absolute; bottom: 8px; left: 8px; max-width: calc(100% - 16px); padding: 5px 9px; background: #141615df; color: #d7e4da; border-radius: 5px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

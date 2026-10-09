@@ -1,5 +1,12 @@
 # Historique DropMeme
 
+## 0.4.2
+
+- Une vidéo ordinaire peut s’afficher avec les GIF et les textes lorsque l’affichage simultané est activé, en placement aléatoire ou dans les zones personnalisées.
+- Une seule vidéo ordinaire à la fois : les vidéos suivantes attendent dans leur ordre d’arrivée sans bloquer les GIF et textes suivants.
+- Le nombre de médias simultanés et les zones disponibles limitent l’ensemble des affichages ; les animations Discord/Tenor encodées en MP4 restent des GIF.
+- Contour noir des lettres épaissi pour les messages texte et les légendes.
+
 ## 0.4.1
 
 - Mise à jour obligatoire : au lancement, une nouvelle version publiée bloque l’application jusqu’à son installation, avec relance automatique. Sans connexion, l’application s’ouvre normalement.

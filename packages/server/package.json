@@ -1,6 +1,6 @@
 {
   "name": "@dropmeme/server",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "register": "node --env-file-if-exists=../../.env --import tsx src/register.ts"
   },
   "dependencies": {
-    "@dropmeme/shared": "0.4.1",
+    "@dropmeme/shared": "0.4.2",
     "@fastify/cors": "11.3.0",
     "@fastify/multipart": "10.1.2",
     "@fastify/rate-limit": "11.2.0",

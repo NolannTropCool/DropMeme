@@ -6,7 +6,7 @@ function event(id: string, kind: MediaEvent['kind'] = 'image'): MediaEvent {
   return { type: 'media', id, channelId: '123456789012345678', kind, url: `https://example.com/v1/media/${id}`, name: id, author: 'Alice', createdAt: Date.now() };
 }
 describe('bounded media queue', () => {
-  test('texts share GIF slots while two ordinary videos remain exclusive and FIFO', () => {
+  test('a video shares GIF/text slots and waiting videos do not block later text', () => {
     const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 3 }, vi.fn());
     queue.enqueue({ ...event('gif'), animation: true });
     queue.enqueue({ ...event('text', 'text'), text: 'Bonjour' });
@@ -14,11 +14,49 @@ describe('bounded media queue', () => {
     queue.enqueue(event('v1', 'video')); queue.enqueue(event('v2', 'video'));
     queue.enqueue({ ...event('text3', 'text'), text: 'Après' });
     expect(queue.currentIds()).toEqual(['gif', 'text', 'text2']);
-    queue.complete('text'); queue.complete('gif');
-    expect(queue.currentIds()).toEqual(['text2']);
-    queue.complete('text2'); expect(queue.currentIds()).toEqual(['v1']);
-    queue.complete('v1'); expect(queue.currentIds()).toEqual(['v2']);
-    queue.complete('v2'); expect(queue.currentIds()).toEqual(['text3']);
+    queue.complete('text'); expect(queue.currentIds()).toEqual(['gif', 'text2', 'v1']);
+    queue.complete('gif'); expect(queue.currentIds()).toEqual(['text2', 'v1', 'text3']);
+    queue.complete('v1'); expect(queue.currentIds()).toEqual(['text2', 'text3', 'v2']);
+    queue.complete('text2'); queue.complete('text3'); expect(queue.currentIds()).toEqual(['v2']);
+  });
+  test('multiple pending videos retain their order and release only the video slot', () => {
+    const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 4 }, vi.fn());
+    queue.enqueue(event('v1', 'video')); queue.enqueue(event('v2', 'video')); queue.enqueue(event('v3', 'video'));
+    queue.enqueue({ ...event('gif'), animation: true }); queue.enqueue({ ...event('text', 'text'), text: 'Bonjour' });
+    expect(queue.currentIds()).toEqual(['v1', 'gif', 'text']);
+    queue.complete('v1'); expect(queue.currentIds()).toEqual(['gif', 'text', 'v2']);
+    queue.complete('v2'); expect(queue.currentIds()).toEqual(['gif', 'text', 'v3']);
+    queue.complete('v2'); expect(queue.currentIds()).toEqual(['gif', 'text', 'v3']);
+  });
+  test('GIF picker MP4 animations can play alongside one ordinary video', () => {
+    const queue = new MediaQueue({ ...defaultSettings, multiDisplay: true, maxSimultaneous: 4 }, vi.fn());
+    queue.enqueue(event('v1', 'video')); queue.enqueue(event('v2', 'video'));
+    queue.enqueue({ ...event('gif1', 'video'), loop: true }); queue.enqueue({ ...event('gif2', 'video'), loop: true });
+    expect(queue.currentIds()).toEqual(['v1', 'gif1', 'gif2']);
+    queue.complete('v1'); expect(queue.currentIds()).toEqual(['gif1', 'gif2', 'v2']);
+  });
+  test('mixed media respect the global capacity and custom zone count', () => {
+    for (const settings of [
+      { ...defaultSettings, multiDisplay: true, maxSimultaneous: 2 },
+      { ...defaultSettings, multiDisplay: true, multiPlacement: 'zones' as const, zones: [0, 1].map(i => ({ id: `zone-${i}`, monitor: 'primary', position: 'custom' as const, x: i * 0.5, y: 0, width: 320, height: 240 })) },
+    ]) {
+      const queue = new MediaQueue(settings, vi.fn());
+      queue.enqueue(event('v1', 'video')); queue.enqueue(event('v2', 'video'));
+      queue.enqueue({ ...event('gif'), animation: true }); queue.enqueue({ ...event('text', 'text'), text: 'Bonjour' });
+      expect(queue.currentIds()).toEqual(['v1', 'gif']);
+      queue.complete('gif'); expect(queue.currentIds()).toEqual(['v1', 'text']);
+      queue.complete('v1'); expect(queue.currentIds()).toEqual(['text', 'v2']);
+    }
+  });
+  test('disabled concurrency keeps mixed media FIFO and static images remain a barrier', () => {
+    const sequential = new MediaQueue(defaultSettings, vi.fn());
+    sequential.enqueue(event('v', 'video')); sequential.enqueue({ ...event('gif'), animation: true }); sequential.enqueue(event('text', 'text'));
+    expect(sequential.currentIds()).toEqual(['v']); sequential.complete('v'); expect(sequential.currentIds()).toEqual(['gif']);
+    const parallel = new MediaQueue({ ...defaultSettings, multiDisplay: true }, vi.fn());
+    parallel.enqueue(event('v1', 'video')); parallel.enqueue(event('v2', 'video')); parallel.enqueue(event('static'));
+    parallel.enqueue({ ...event('gif'), animation: true });
+    expect(parallel.currentIds()).toEqual(['v1']); parallel.complete('v1'); expect(parallel.currentIds()).toEqual(['v2']);
+    parallel.complete('v2'); expect(parallel.currentIds()).toEqual(['static']); parallel.complete('static'); expect(parallel.currentIds()).toEqual(['gif']);
   });
   test('text concurrency respects the opt-in and the number of custom zones', () => {
     for (const settings of [defaultSettings, { ...defaultSettings, multiDisplay: true, multiPlacement: 'zones' as const, zones: [{ id: 'one', monitor: 'primary', position: 'custom' as const, x: 0, y: 0, width: 320, height: 240 }] }]) {
@@ -34,8 +72,8 @@ describe('bounded media queue', () => {
     queue.enqueue(gif('a')); queue.enqueue(gif('b')); queue.enqueue(gif('c')); queue.enqueue(event('v', 'video')); queue.enqueue(gif('d'));
     expect(queue.currentIds()).toEqual(['a', 'b']);
     queue.complete('b'); expect(queue.currentIds()).toEqual(['a', 'c']);
-    queue.complete('a'); expect(queue.currentIds()).toEqual(['c']);
-    queue.complete('c'); expect(queue.currentIds()).toEqual(['v']);
+    queue.complete('a'); expect(queue.currentIds()).toEqual(['c', 'v']);
+    queue.complete('c'); expect(queue.currentIds()).toEqual(['v', 'd']);
     queue.complete('v'); expect(queue.currentIds()).toEqual(['d']);
     expect(display.mock.calls.map(call => call[0].id)).toEqual(['a', 'b', 'c', 'v', 'd']);
   });
